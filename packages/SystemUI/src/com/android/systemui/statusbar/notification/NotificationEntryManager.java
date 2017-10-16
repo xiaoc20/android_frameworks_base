@@ -23,6 +23,7 @@ import android.app.Notification;
 import android.content.Context;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 
@@ -44,6 +45,7 @@ import com.android.systemui.statusbar.notification.logging.NotificationLogger;
 import com.android.systemui.statusbar.notification.row.NotificationContentInflater;
 import com.android.systemui.statusbar.notification.row.NotificationContentInflater.InflationFlag;
 import com.android.systemui.statusbar.notification.stack.NotificationListContainer;
+import com.android.systemui.statusbar.phone.StatusBar;
 import com.android.systemui.statusbar.policy.HeadsUpManager;
 import com.android.systemui.util.leak.LeakDetector;
 
@@ -83,6 +85,9 @@ public class NotificationEntryManager implements
 
     private final Map<NotificationEntry, NotificationLifetimeExtender> mRetainedNotifications =
             new ArrayMap<>();
+
+    // We need reference to status bar for notification ticker
+    private StatusBar mStatusBar;
 
     // Lazily retrieved dependencies
     private NotificationRemoteInputManager mRemoteInputManager;
@@ -426,6 +431,7 @@ public class NotificationEntryManager implements
             return;
         }
 
+        Notification n = notification.getNotification();
         // Notification is updated so it is essentially re-added and thus alive again.  Don't need
         // to keep its lifetime extended.
         cancelLifetimeExtension(entry);
@@ -440,11 +446,21 @@ public class NotificationEntryManager implements
                 REASON_CANCEL));
         updateNotifications();
 
+        boolean isForCurrentUser = Dependency.get(KeyguardEnvironment.class)
+                .isNotificationForCurrentProfiles(notification);
         if (DEBUG) {
             // Is this for you?
-            boolean isForCurrentUser = Dependency.get(KeyguardEnvironment.class)
-                    .isNotificationForCurrentProfiles(notification);
             Log.d(TAG, "notification is " + (isForCurrentUser ? "" : "not ") + "for you");
+        }
+        boolean updateTicker = n.tickerText != null
+                && !TextUtils.equals(n.tickerText,
+                entry.notification.getNotification().tickerText);
+        // Restart the ticker if it's still running
+        if (updateTicker && isForCurrentUser) {
+            if (mStatusBar != null) {
+                mStatusBar.haltTicker();
+                mStatusBar.tick(notification, false, false, null, null);
+            }
         }
 
         for (NotificationEntryListener listener : mNotificationEntryListeners) {
@@ -548,5 +564,41 @@ public class NotificationEntryManager implements
                     + "setRowBinder() before using.");
         }
         return mNotificationRowBinder;
+    }
+
+    private class SettingsObserver extends ContentObserver {
+
+        private ContentResolver mCr;
+
+        SettingsObserver(Context context) {
+            super(Dependency.get(Dependency.MAIN_HANDLER));
+            mCr = context.getContentResolver();
+        }
+
+        void observe() {
+            mCr.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.APP_LOCK_HIDE_NOTIFICATIONS), false, this,
+                    UserHandle.USER_ALL);
+            mLockNotifications = Settings.System.getIntForUser(mCr,
+                    Settings.System.APP_LOCK_HIDE_NOTIFICATIONS, 1,
+                    UserHandle.USER_CURRENT) != 0;
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            boolean lockNotifications = Settings.System.getIntForUser(mCr,
+                    Settings.System.APP_LOCK_HIDE_NOTIFICATIONS, 1,
+                    UserHandle.USER_CURRENT) != 0;
+            if (mLockNotifications != lockNotifications) {
+                mLockNotifications = lockNotifications;
+                List<String> lockedPackages = mAppLockManager.getLockedPackages();
+                for (String pkg : lockedPackages) {
+                    updateAppNotifications(pkg, mAppLockManager.isAppOpen(pkg));
+                }
+            }
+        }
+    }
+    public void setStatusBar(StatusBar statusBar) {
+        mStatusBar = statusBar;
     }
 }
