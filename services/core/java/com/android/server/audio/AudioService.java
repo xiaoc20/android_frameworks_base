@@ -126,6 +126,7 @@ import android.telecom.TelecomManager;
 import android.text.TextUtils;
 import android.util.AndroidRuntimeException;
 import android.util.IntArray;
+import android.util.ArraySet;
 import android.util.Log;
 import android.util.MathUtils;
 import android.util.Slog;
@@ -883,6 +884,8 @@ public class AudioService extends IAudioService.Stub
 
     public void onSystemReady() {
         mSystemReady = true;
+
+        registerVivoHifiDsd();
         scheduleLoadSoundEffects();
 
         mDeviceBroker.onSystemReady();
@@ -2324,6 +2327,259 @@ public class AudioService extends IAudioService.Stub
                     configs /*obj*/, 0 /*delay*/);
         }
     };
+
+    // -------------------------------------------------------------------------
+    // vivo PD1610 (XPlay6) HiFi / DSD
+    //
+    // The factory drove this from Funtouch's AudioEffect app, which talked to
+    // vivo's own AudioFlinger over "hifi_switch_change=<pkg>:<1|0>".  We build
+    // AOSP's AudioFlinger, so that key means nothing here -- but the vendor
+    // audio HAL underneath is still the factory blob and takes "enable_hifi"
+    // directly in adev_set_parameters().  AudioFlinger forwards every key it
+    // does not reserve to every loaded HAL, so we can drive it from here.
+    //
+    //     HiFi on  <=>  master switch on AND a whitelisted app is playing
+    //     DSD  on  <=>  HiFi on AND the DSD master switch on
+    //
+    // Settings -> Sound -> Hi-Fi and DSD is the only writer of the three
+    // Settings.Secure keys below.
+    // -------------------------------------------------------------------------
+
+    private static final String VIVO_HIFI_KEY = "vivo_hifi_enabled";
+    private static final String VIVO_DSD_KEY = "vivo_dsd_enabled";
+    private static final String VIVO_WHITELIST_KEY = "vivo_hifi_dsd_whitelist";
+
+    /** Property the factory NuPlayer read before allowing native DSD out. */
+    private static final String VIVO_DSD_PROP = "audio.dsd.hw.out";
+
+    /** Vendor HAL parameter that switches the ES9038 rail in. */
+    private static final String VIVO_HIFI_PARAM = "enable_hifi";
+
+    /**
+     * Factory status bar indicators (see PhoneStatusBarPolicy in SystemUI).
+     * vivo's own media framework used to send these; AudioService does now.
+     */
+    private static final String VIVO_HIFI_DISPLAY_ACTION = "com.bbk.audiofx.hifi.display";
+    private static final String VIVO_DSD_DISPLAY_ACTION = "com.vivo.media.dsd.display";
+
+    /**
+     * The only DSD key the vendor HAL answers on a read: its
+     * adev_get_parameters() returns "true"/"false" for this one, tracking the
+     * DSD output latch.
+     *
+     * Do NOT use "DSDEnable" here.  In the A8 HAL that key is a veto -- the
+     * only value it accepts is 0, whose only effect is to clear the DSD state,
+     * and every non-zero value is a silent no-op.  It can never report.
+     */
+    private static final String VIVO_DSD_HAL_QUERY = "is_hw_dsd_running";
+
+    /** How often to re-read the HAL while HiFi is engaged, to catch DSD starting. */
+    private static final long VIVO_DSD_POLL_MS = 2000;
+
+    /** Last state pushed down, so we only talk to the HAL when it changes. */
+    private int mVivoHifiApplied = -1;
+    private int mVivoDsdApplied = -1;
+
+    /** DSD master switch, remembered so the HAL poll knows whether to run. */
+    private boolean mVivoDsdMasterOn;
+    private boolean mVivoDsdPollScheduled;
+
+    private final Runnable mVivoDsdPoll = new Runnable() {
+        @Override
+        public void run() {
+            mVivoDsdPollScheduled = false;
+            if (mVivoHifiApplied != 1 || !mVivoDsdMasterOn) {
+                return;
+            }
+            publishVivoHifiDsd();
+            scheduleVivoDsdPoll();
+        }
+    };
+
+    private final IPlaybackConfigDispatcher mVivoPlaybackMonitor =
+            new IPlaybackConfigDispatcher.Stub() {
+                @Override
+                public void dispatchPlaybackConfigChange(
+                        List<AudioPlaybackConfiguration> configs, boolean flush) {
+                    if (flush) {
+                        return;
+                    }
+                    final List<AudioPlaybackConfiguration> snapshot =
+                            new ArrayList<>(configs);
+                    mAudioHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateVivoHifiDsd(snapshot);
+                        }
+                    });
+                }
+            };
+
+    private final ContentObserver mVivoSettingsObserver = new ContentObserver(mAudioHandler) {
+        @Override
+        public void onChange(boolean selfChange) {
+            updateVivoHifiDsd(null);
+        }
+    };
+
+    private void registerVivoHifiDsd() {
+        mPlaybackMonitor.registerPlaybackCallback(mVivoPlaybackMonitor, true);
+
+        final ContentResolver cr = mContext.getContentResolver();
+        for (String key : new String[] {VIVO_HIFI_KEY, VIVO_DSD_KEY, VIVO_WHITELIST_KEY}) {
+            cr.registerContentObserver(Settings.Secure.getUriFor(key), false,
+                    mVivoSettingsObserver, UserHandle.USER_ALL);
+        }
+        updateVivoHifiDsd(null);
+    }
+
+    private void updateVivoHifiDsd(List<AudioPlaybackConfiguration> configs) {
+        final ContentResolver cr = mContext.getContentResolver();
+        final boolean masterOn = Settings.Secure.getInt(cr, VIVO_HIFI_KEY, 0) != 0;
+        final boolean dsdMasterOn = Settings.Secure.getInt(cr, VIVO_DSD_KEY, 0) != 0;
+        final Set<String> whitelist = parseVivoWhitelist(
+                Settings.Secure.getString(cr, VIVO_WHITELIST_KEY));
+
+        boolean whitelistedPlaying = false;
+        if (masterOn && !whitelist.isEmpty()) {
+            if (configs == null) {
+                configs = mPlaybackMonitor.getActivePlaybackConfigurations(true);
+            }
+            final PackageManager pm = mContext.getPackageManager();
+            for (AudioPlaybackConfiguration config : configs) {
+                if (config.getPlayerState()
+                        != AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
+                    continue;
+                }
+                final String[] packages = pm.getPackagesForUid(config.getClientUid());
+                if (packages == null) {
+                    continue;
+                }
+                for (String pkg : packages) {
+                    if (whitelist.contains(pkg)) {
+                        whitelistedPlaying = true;
+                        break;
+                    }
+                }
+                if (whitelistedPlaying) {
+                    break;
+                }
+            }
+        }
+
+        mVivoDsdMasterOn = dsdMasterOn;
+
+        final int hifi = (masterOn && whitelistedPlaying) ? 1 : 0;
+        if (hifi != mVivoHifiApplied) {
+            mVivoHifiApplied = hifi;
+            AudioSystem.setParameters(VIVO_HIFI_PARAM + "=" + hifi);
+            Log.d(TAG, "vivo hifi applied: " + VIVO_HIFI_PARAM + "=" + hifi);
+        }
+
+        // Arm the factory NuPlayer's native DSD pass-through on the same state.
+        final int dsdArmed = (hifi == 1 && dsdMasterOn) ? 1 : 0;
+        if (dsdArmed != mVivoDsdApplied) {
+            mVivoDsdApplied = dsdArmed;
+            SystemProperties.set(VIVO_DSD_PROP, Integer.toString(dsdArmed));
+        }
+
+        publishVivoHifiDsd();
+        scheduleVivoDsdPoll();
+    }
+
+    /**
+     * Reports the live audio path to SystemUI, mirroring the two broadcasts the
+     * factory's media framework used to send (boolean extra "state"), plus both
+     * flags so a single sticky intent restores the icons after a restart.
+     */
+    private void publishVivoHifiDsd() {
+        final boolean hifi = mVivoHifiApplied == 1;
+
+        final int halDsd = (hifi && mVivoDsdMasterOn) ? readVivoHalDsdRunning() : 0;
+        // Only the HAL knows whether a DSD stream is really being written.
+        // -1 means this HAL cannot answer, and then we fall back to "DSD is
+        // armed" rather than leaving the icon permanently dead.
+        final boolean dsd = (hifi && mVivoDsdMasterOn) && (halDsd != 0);
+
+        Log.d(TAG, "vivo hifi/dsd display: hifi=" + hifi + " dsd=" + dsd
+                + " (is_hw_dsd_running=" + halDsd + ")");
+
+        sendVivoIndicator(VIVO_HIFI_DISPLAY_ACTION, hifi, hifi, dsd);
+        sendVivoIndicator(VIVO_DSD_DISPLAY_ACTION, dsd, hifi, dsd);
+    }
+
+    private void sendVivoIndicator(String action, boolean state, boolean hifi, boolean dsd) {
+        final Intent intent = new Intent(action);
+        intent.putExtra("state", state);
+        intent.putExtra("hifi", hifi);
+        intent.putExtra("dsd", dsd);
+        mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
+    }
+
+    private void scheduleVivoDsdPoll() {
+        if (mVivoHifiApplied != 1 || !mVivoDsdMasterOn || mVivoDsdPollScheduled) {
+            return;
+        }
+        mVivoDsdPollScheduled = true;
+        mAudioHandler.postDelayed(mVivoDsdPoll, VIVO_DSD_POLL_MS);
+    }
+
+    /**
+     * @return 1 when the HAL says a DSD stream is running, 0 when it says it is
+     *         not, -1 when it does not answer at all (key unsupported).
+     */
+    private int readVivoHalDsdRunning() {
+        final String answer = AudioSystem.getParameters(VIVO_DSD_HAL_QUERY);
+        if (answer == null) {
+            return -1;
+        }
+        String value = answer.trim();
+        if (value.isEmpty()) {
+            return -1;
+        }
+        final int eq = value.indexOf('=');
+        if (eq >= 0) {
+            value = value.substring(eq + 1).trim();
+        }
+        if ("true".equalsIgnoreCase(value)) {
+            return 1;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(value) != 0 ? 1 : 0;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private void applyVivoHifiDsd(int hifi, int dsd) {
+        if (hifi == mVivoHifiApplied && dsd == mVivoDsdApplied) {
+            return;
+        }
+        mVivoHifiApplied = hifi;
+        mVivoDsdApplied = dsd;
+
+        AudioSystem.setParameters(VIVO_HIFI_PARAM + "=" + hifi);
+        SystemProperties.set(VIVO_DSD_PROP, Integer.toString(dsd));
+        Log.d(TAG, "vivo hifi/dsd applied: " + VIVO_HIFI_PARAM + "=" + hifi
+                + ", " + VIVO_DSD_PROP + "=" + dsd);
+    }
+
+    private static Set<String> parseVivoWhitelist(String raw) {
+        final Set<String> result = new ArraySet<>();
+        if (raw == null) {
+            return result;
+        }
+        for (String line : raw.split("\n")) {
+            final String pkg = line.trim();
+            if (!pkg.isEmpty()) {
+                result.add(pkg);
+            }
+        }
+        return result;
+    }
 
     private void onPlaybackConfigChange(List<AudioPlaybackConfiguration> configs) {
         boolean voiceActive = false;

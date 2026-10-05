@@ -58,6 +58,7 @@ import android.os.Message;
 import android.os.MessageQueue;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
@@ -322,8 +323,15 @@ public class InputManagerService extends IInputManager.Stub
         this.mContext = context;
         this.mHandler = new InputManagerHandler(DisplayThread.get().getLooper());
 
+        // PD1610: the 3.5 mm jack is reported only through the input subsystem
+        // (msm8996-tasha-cdp-snd-card Headset Jack, /dev/input/event7).  This kernel
+        // creates neither /sys/class/switch/h2w nor /sys/class/extcon, so with the AOSP
+        // default (false) the wired-accessory code has nothing to watch and a plugged
+        // headset is never reported -- audio keeps going to the speaker.  Read the input
+        // switches instead.  The property is only an escape hatch and defaults to on.
         mUseDevInputEventForAudioJack =
-                context.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack);
+                context.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack)
+                || SystemProperties.getBoolean("persist.sys.audio.jack_devinput", true);
         Slog.i(TAG, "Initializing input manager, mUseDevInputEventForAudioJack="
                 + mUseDevInputEventForAudioJack);
         mPtr = nativeInit(this, mContext, mHandler.getLooper().getQueue());

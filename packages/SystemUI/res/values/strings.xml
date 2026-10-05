@@ -2496,4 +2496,16 @@
     <!-- Notification content text when switching to a default launcher that supports gesture navigation [CHAR LIMIT=NONE] -->
     <string name="notification_content_gesture_nav_available">Go to Settings to update system navigation</string>
 
+    <!-- vivo PD1610: status bar indicators for the hardware HiFi / DSD audio path. -->
+    <!--
+      Slot names, not display text.  PhoneStatusBarPolicy hands these to
+      StatusBarIconController, which uses them as keys.  Must read exactly like
+      the factory's (values "hifi" / "dsd") and must never be translated, or the
+      slot would change with the locale.
+    -->
+    <string name="status_bar_hifi" translatable="false">hifi</string>
+    <string name="status_bar_dsd" translatable="false">dsd</string>
+    <string name="accessibility_hifi_active">HiFi audio</string>
+    <string name="accessibility_dsd_active">DSD audio</string>
+
 </resources>

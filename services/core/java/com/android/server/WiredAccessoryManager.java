@@ -30,6 +30,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
+import android.os.SystemProperties;
 import android.os.UEventObserver;
 import android.util.Log;
 import android.util.Pair;
@@ -104,8 +105,15 @@ final class WiredAccessoryManager implements WiredAccessoryCallbacks {
         mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         mInputManager = inputManager;
 
+        // PD1610: the 3.5 mm jack is reported only through the input subsystem
+        // (msm8996-tasha-cdp-snd-card Headset Jack, /dev/input/event7).  This kernel
+        // creates neither /sys/class/switch/h2w nor /sys/class/extcon, so with the AOSP
+        // default (false) the wired-accessory code has nothing to watch and a plugged
+        // headset is never reported -- audio keeps going to the speaker.  Read the input
+        // switches instead.  The property is only an escape hatch and defaults to on.
         mUseDevInputEventForAudioJack =
-                context.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack);
+                context.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack)
+                || SystemProperties.getBoolean("persist.sys.audio.jack_devinput", true);
 
         mExtconObserver = new WiredAccessoryExtconObserver();
         mObserver = new WiredAccessoryObserver();
@@ -152,8 +160,20 @@ final class WiredAccessoryManager implements WiredAccessoryCallbacks {
         synchronized (mLock) {
             int headset;
             mSwitchValues = (mSwitchValues & ~switchMask) | switchValues;
-            switch (mSwitchValues &
-                    (SW_HEADPHONE_INSERT_BIT | SW_MICROPHONE_INSERT_BIT | SW_LINEOUT_INSERT_BIT)) {
+            // PD1610: the WCD9335 MBHC driver asserts SW_LINEOUT_INSERT together with
+            // SW_HEADPHONE_INSERT, so a plain 3-pole headphone arrives as
+            // 0x54 = HEADPHONE|MICROPHONE|LINEOUT.  That combination matches none of the
+            // cases below and used to fall through to "default: headset = 0", which told
+            // AudioService that nothing was plugged in -- music kept playing on the
+            // speaker.  A stray LINEOUT bit must not hide a real headphone.  A genuine
+            // line-out cable is unaffected: it carries no HEADPHONE bit, so the masking
+            // below leaves SW_LINEOUT_INSERT_BIT alone.
+            int switchBits = mSwitchValues &
+                    (SW_HEADPHONE_INSERT_BIT | SW_MICROPHONE_INSERT_BIT | SW_LINEOUT_INSERT_BIT);
+            if ((switchBits & SW_HEADPHONE_INSERT_BIT) != 0) {
+                switchBits &= ~SW_LINEOUT_INSERT_BIT;
+            }
+            switch (switchBits) {
                 case 0:
                     headset = 0;
                     break;

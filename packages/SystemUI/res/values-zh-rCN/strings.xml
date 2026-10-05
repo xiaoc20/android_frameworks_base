@@ -942,4 +942,9 @@
     <string name="bubble_dismiss_text" msgid="7071770411580452911">"关闭"</string>
     <string name="notification_content_system_nav_changed" msgid="5077913144844684544">"系统导航已更新。要进行更改，请转到“设置”。"</string>
     <string name="notification_content_gesture_nav_available" msgid="4431460803004659888">"转到“设置”即可更新系统导航"</string>
+    <!-- vivo PD1610: 硬件 HiFi / DSD 音频通路的状态栏图标。 -->
+    <!-- 槽位名在默认 values/strings.xml 里，且不可翻译。 -->
+    <string name="accessibility_hifi_active">HiFi 音频</string>
+    <string name="accessibility_dsd_active">DSD 音频</string>
+
 </resources>

@@ -108,6 +108,19 @@ public class PhoneStatusBarPolicy
     private final String mSlotCamera;
     private final String mSlotSensorsOff;
 
+    /** Factory HiFi / DSD indicators; AudioService is the sender on this build. */
+    private static final String ACTION_HIFI_DISPLAY = "com.bbk.audiofx.hifi.display";
+    private static final String ACTION_DSD_DISPLAY = "com.vivo.media.dsd.display";
+    private static final String EXTRA_STATE = "state";
+    /** AudioService stamps both flags on every broadcast, so one sticky is enough. */
+    private static final String EXTRA_HIFI = "hifi";
+    private static final String EXTRA_DSD = "dsd";
+
+    private final String mSlotHifi;
+    private final String mSlotDsd;
+    private boolean mHifiEnabled;
+    private boolean mDsdEnabled;
+
     private final Context mContext;
     private final Handler mHandler = new Handler();
     private final CastController mCast;
@@ -175,6 +188,8 @@ public class PhoneStatusBarPolicy
         mSlotMicrophone = context.getString(com.android.internal.R.string.status_bar_microphone);
         mSlotCamera = context.getString(com.android.internal.R.string.status_bar_camera);
         mSlotSensorsOff = context.getString(com.android.internal.R.string.status_bar_sensors_off);
+        mSlotHifi = context.getString(R.string.status_bar_hifi);
+        mSlotDsd = context.getString(R.string.status_bar_dsd);
 
         // listen for broadcasts
         IntentFilter filter = new IntentFilter();
@@ -187,7 +202,14 @@ public class PhoneStatusBarPolicy
         filter.addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE);
         filter.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
         filter.addAction(Intent.ACTION_MANAGED_PROFILE_REMOVED);
-        mContext.registerReceiver(mIntentReceiver, filter, null, mHandler);
+        filter.addAction(ACTION_HIFI_DISPLAY);
+        filter.addAction(ACTION_DSD_DISPLAY);
+        final Intent sticky = mContext.registerReceiver(mIntentReceiver, filter, null, mHandler);
+        if (sticky != null
+                && (ACTION_HIFI_DISPLAY.equals(sticky.getAction())
+                    || ACTION_DSD_DISPLAY.equals(sticky.getAction()))) {
+            applyHifiDsd(sticky);
+        }
 
         // listen for user / profile change.
         try {
@@ -246,6 +268,14 @@ public class PhoneStatusBarPolicy
         mIconController.setIconVisibility(mSlotLocation, false);
 
         // sensors off
+        // vivo PD1610: hardware HiFi / DSD audio path
+        mIconController.setIcon(mSlotHifi, R.drawable.stat_sys_hifi,
+                mContext.getString(R.string.accessibility_hifi_active));
+        mIconController.setIconVisibility(mSlotHifi, mHifiEnabled);
+        mIconController.setIcon(mSlotDsd, R.drawable.stat_sys_dsd,
+                mContext.getString(R.string.accessibility_dsd_active));
+        mIconController.setIconVisibility(mSlotDsd, mDsdEnabled);
+
         mIconController.setIcon(mSlotSensorsOff, R.drawable.stat_sys_sensors_off,
                 mContext.getString(R.string.accessibility_sensors_off_active));
         mIconController.setIconVisibility(mSlotSensorsOff,
@@ -466,6 +496,27 @@ public class PhoneStatusBarPolicy
             if (DEBUG) Log.v(TAG, "updateTTY: set TTY off");
             mIconController.setIconVisibility(mSlotTty, false);
         }
+    }
+
+    /**
+     * Mirrors the factory's updateHifi()/updateDsd().  AudioService sends both
+     * flags on every broadcast so that the sticky intent carries enough to
+     * restore the icons after a SystemUI restart.
+     */
+    private void applyHifiDsd(Intent intent) {
+        if (intent.hasExtra(EXTRA_HIFI) || intent.hasExtra(EXTRA_DSD)) {
+            mHifiEnabled = intent.getBooleanExtra(EXTRA_HIFI, false);
+            mDsdEnabled = intent.getBooleanExtra(EXTRA_DSD, false);
+        } else {
+            final boolean state = intent.getBooleanExtra(EXTRA_STATE, false);
+            if (ACTION_HIFI_DISPLAY.equals(intent.getAction())) {
+                mHifiEnabled = state;
+            } else {
+                mDsdEnabled = state;
+            }
+        }
+        mIconController.setIconVisibility(mSlotHifi, mHifiEnabled);
+        mIconController.setIconVisibility(mSlotDsd, mDsdEnabled);
     }
 
     private void updateCast() {
@@ -713,6 +764,10 @@ public class PhoneStatusBarPolicy
                     break;
                 case BluetoothDevice.ACTION_BATTERY_LEVEL_CHANGED:
                     updateBluetooth();
+                    break;
+                case ACTION_HIFI_DISPLAY:
+                case ACTION_DSD_DISPLAY:
+                    applyHifiDsd(intent);
                     break;
             }
         }
