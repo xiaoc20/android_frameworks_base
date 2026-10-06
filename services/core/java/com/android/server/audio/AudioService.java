@@ -2339,6 +2339,7 @@ public class AudioService extends IAudioService.Stub
     // does not reserve to every loaded HAL, so we can drive it from here.
     //
     //     HiFi on  <=>  master switch on AND a whitelisted app is playing
+    //                    AND the wired headphone is plugged in
     //     DSD  on  <=>  HiFi on AND the DSD master switch on
     //
     // Settings -> Sound -> Hi-Fi and DSD is the only writer of the three
@@ -2383,6 +2384,27 @@ public class AudioService extends IAudioService.Stub
     /** DSD master switch, remembered so the HAL poll knows whether to run. */
     private boolean mVivoDsdMasterOn;
     private boolean mVivoDsdPollScheduled;
+
+    /**
+     * Wired headphone/headset plugged in.
+     *
+     * The ES9038 lives behind the headphone analog switch, so the HiFi path
+     * is only ever reachable on the wired-headphone device -- the vendor HAL
+     * has no speaker HiFi use case.  Before this gate existed a whitelisted
+     * player forced enable_hifi=1 even with the speaker as the output device,
+     * and the HAL duly rerouted the speaker onto the HiFi codec: far louder
+     * than the speaker path, and the volume keys barely moved it, because
+     * that path is driven by the ACDB gain-step table (~6 steps) instead of
+     * the music stream's 25.
+     *
+     * Tracked from setWiredDeviceConnectionState() rather than asked of
+     * AudioSystem.getDeviceConnectionState(), because at the moment that
+     * call arrives the audio policy still reports the previous device.
+     */
+    private boolean mVivoHeadsetConnected;
+
+    /** Last (hifi, dsd) pair broadcast to the status bar; -1 = never sent. */
+    private int mVivoPublishedState = -1;
 
     private final Runnable mVivoDsdPoll = new Runnable() {
         @Override
@@ -2469,7 +2491,7 @@ public class AudioService extends IAudioService.Stub
 
         mVivoDsdMasterOn = dsdMasterOn;
 
-        final int hifi = (masterOn && whitelistedPlaying) ? 1 : 0;
+        final int hifi = (masterOn && whitelistedPlaying && mVivoHeadsetConnected) ? 1 : 0;
         if (hifi != mVivoHifiApplied) {
             mVivoHifiApplied = hifi;
             AudioSystem.setParameters(VIVO_HIFI_PARAM + "=" + hifi);
@@ -2503,6 +2525,18 @@ public class AudioService extends IAudioService.Stub
 
         Log.d(TAG, "vivo hifi/dsd display: hifi=" + hifi + " dsd=" + dsd
                 + " (is_hw_dsd_running=" + halDsd + ")");
+
+        // The DSD poll calls this every VIVO_DSD_POLL_MS, so most calls
+        // report exactly what the previous one did.  Only broadcast on a real
+        // change: each send is a sticky broadcast on an unprotected action,
+        // which ActivityManagerService logs as a WTF every single time, and at
+        // one pair per poll that was enough binder traffic to starve the
+        // output thread -- audible as playback stutter.
+        final int state = (hifi ? 1 : 0) | (dsd ? 2 : 0);
+        if (state == mVivoPublishedState) {
+            return;
+        }
+        mVivoPublishedState = state;
 
         sendVivoIndicator(VIVO_HIFI_DISPLAY_ACTION, hifi, hifi, dsd);
         sendVivoIndicator(VIVO_DSD_DISPLAY_ACTION, dsd, hifi, dsd);
@@ -4772,6 +4806,20 @@ public class AudioService extends IAudioService.Stub
             throw new IllegalArgumentException("Invalid state " + state);
         }
         mDeviceBroker.setWiredDeviceConnectionState(type, state, address, name, caller);
+
+        // PD1610: the vivo HiFi/DSD state depends on the headphone being in, so
+        // re-evaluate it here.  Waiting for the next playback-config change
+        // would leave whatever is playing on the HiFi codec after unplug.
+        if (type == AudioSystem.DEVICE_OUT_WIRED_HEADSET
+                || type == AudioSystem.DEVICE_OUT_WIRED_HEADPHONE) {
+            mVivoHeadsetConnected = (state == CONNECTION_STATE_CONNECTED);
+            mAudioHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    updateVivoHifiDsd(null);
+                }
+            });
+        }
     }
 
     /**
