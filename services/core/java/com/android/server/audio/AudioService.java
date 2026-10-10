@@ -2338,9 +2338,15 @@ public class AudioService extends IAudioService.Stub
     // directly in adev_set_parameters().  AudioFlinger forwards every key it
     // does not reserve to every loaded HAL, so we can drive it from here.
     //
-    //     HiFi on  <=>  master switch on AND a whitelisted app is playing
-    //                    AND the wired headphone is plugged in
-    //     DSD  on  <=>  HiFi on AND the DSD master switch on
+    //     HiFi applied  <=>  master switch on AND a whitelisted app is playing
+    //                        AND the wired headphone is plugged in
+    //     DSD running   <=>  HiFi applied AND the DSD master switch on AND the
+    //                        vendor HAL reports a live native DSD stream
+    //
+    // The second line is the one that used to be wrong here: the factory's DSD
+    // indicator is per-stream ("is a native DSD output being written right
+    // now"), and the DSD switch is only an *arming* gate -- an MP3 played with
+    // DSD switched on has no DSD stream and no badge.  See VIVO_DSD_HAL_QUERY.
     //
     // Settings -> Sound -> Hi-Fi and DSD is the only writer of the three
     // Settings.Secure keys below.
@@ -2350,8 +2356,25 @@ public class AudioService extends IAudioService.Stub
     private static final String VIVO_DSD_KEY = "vivo_dsd_enabled";
     private static final String VIVO_WHITELIST_KEY = "vivo_hifi_dsd_whitelist";
 
-    /** Property the factory NuPlayer read before allowing native DSD out. */
-    private static final String VIVO_DSD_PROP = "audio.dsd.hw.out";
+    // The factory also turned the DSD switch into the system property
+    // "audio.dsd.hw.out" (their FeatureService, feature 500 setPlayerFeatures)
+    // for their NuPlayer to read back before it emitted native DSD to the HAL.
+    // This build deliberately does NOT write it:
+    //   * nothing here would read it.  Our NuPlayer is AOSP's, the vendor HAL
+    //     does not contain the string at all, and the only factory consumer
+    //     left is BBKMusic, which we do not ship.  It would be a value with no
+    //     reader -- a fake "DSD is live" flag;
+    //   * SELinux denies the write from system_server anyway (A10 grants
+    //     system_server only get_prop on exported_audio_prop, and there is no
+    //     bare "audio." entry in property_contexts; the factory wrote it from
+    //     audioserver, inside a FeatureService our AOSP audioserver does not
+    //     have).  Writing it just produced an avc on every boot;
+    //   * arming is not playback.  Treating "DSD is allowed" as "DSD is live"
+    //     is exactly what made the status bar badge every track.
+    // mVivoDsdApplied below carries the armed state in-process instead.  If
+    // native DSD playback is ever ported, the property comes back the way the
+    // factory had it -- written by audioserver, with a property_contexts entry
+    // -- not bolted onto AudioService.
 
     /** Vendor HAL parameter that switches the ES9038 rail in. */
     private static final String VIVO_HIFI_PARAM = "enable_hifi";
@@ -2364,25 +2387,51 @@ public class AudioService extends IAudioService.Stub
     private static final String VIVO_DSD_DISPLAY_ACTION = "com.vivo.media.dsd.display";
 
     /**
-     * The only DSD key the vendor HAL answers on a read: its
-     * adev_get_parameters() returns "true"/"false" for this one, tracking the
-     * DSD output latch.
+     * Vendor HAL parameter answering whether a native DSD output stream is
+     * live *right now* -- the one true source for the DSD indicator.
      *
-     * Do NOT use "DSDEnable" here.  In the A8 HAL that key is a veto -- the
-     * only value it accepts is 0, whose only effect is to clear the DSD state,
-     * and every non-zero value is a silent no-op.  It can never report.
+     * In the factory that fact came off AudioFlinger: its DSD state flipped
+     * only when the "DSD Output" thread was created or destroyed, i.e. only
+     * while a client had a DSD/DoP track open, and libmars-service pushed it to
+     * the status bar (notifyFlingerEvent 204 -> com.vivo.media.dsd.display,
+     * live and sticky).  The DSD *switch* never drove the indicator; all it did
+     * was arm the player, which is why the factory badge is dark for an MP3
+     * played with DSD switched on.
+     *
+     * Our AudioFlinger is AOSP's and has no DSD output type at all, so there is
+     * no such event to push.  The vendor HAL is the only component left that
+     * still knows: adev_get_parameters() answers this key with "true"/"false"
+     * out of its own latch (set when an output stream is opened with vivo's
+     * HW-DSD flag, cleared in start_output_stream and by "DSDEnable=0").
+     *
+     * The query path is real: AudioSystem.getParameters() -> JNI ->
+     * AudioFlinger::getParameters(AUDIO_IO_HANDLE_NONE, keys) broadcasts the
+     * key to every loaded HAL's adev_get_parameters().
      */
     private static final String VIVO_DSD_HAL_QUERY = "is_hw_dsd_running";
 
-    /** How often to re-read the HAL while HiFi is engaged, to catch DSD starting. */
-    private static final long VIVO_DSD_POLL_MS = 2000;
+    /**
+     * How often to ask while -- and only while -- a DSD stream could be
+     * running.  The probe starts and stops with the HiFi+DSD window, so it
+     * costs nothing outside playback.  (Measured 2026-10-06: the old 2 s probe
+     * was NOT the playback stutter; this is a correctness fix, not a
+     * performance one.)
+     */
+    private static final long VIVO_DSD_POLL_MS = 1000;
 
-    /** Last state pushed down, so we only talk to the HAL when it changes. */
+    /** Last "enable_hifi" pushed down, so we only touch the HAL on a change. */
     private int mVivoHifiApplied = -1;
+
+    /** Last armed state of the DSD switch (HiFi applied AND the switch on). */
     private int mVivoDsdApplied = -1;
 
-    /** DSD master switch, remembered so the HAL poll knows whether to run. */
+    /** DSD master switch, latched so the display feed can be recomputed. */
     private boolean mVivoDsdMasterOn;
+
+    /** Last answer from {@link #VIVO_DSD_HAL_QUERY}: a DSD stream is live. */
+    private boolean mVivoDsdLive;
+
+    /** True while mVivoDsdPoll is queued, so it is never double-scheduled. */
     private boolean mVivoDsdPollScheduled;
 
     /**
@@ -2406,18 +2455,6 @@ public class AudioService extends IAudioService.Stub
     /** Last (hifi, dsd) pair broadcast to the status bar; -1 = never sent. */
     private int mVivoPublishedState = -1;
 
-    private final Runnable mVivoDsdPoll = new Runnable() {
-        @Override
-        public void run() {
-            mVivoDsdPollScheduled = false;
-            if (mVivoHifiApplied != 1 || !mVivoDsdMasterOn) {
-                return;
-            }
-            publishVivoHifiDsd();
-            scheduleVivoDsdPoll();
-        }
-    };
-
     private final IPlaybackConfigDispatcher mVivoPlaybackMonitor =
             new IPlaybackConfigDispatcher.Stub() {
                 @Override
@@ -2436,6 +2473,20 @@ public class AudioService extends IAudioService.Stub
                     });
                 }
             };
+
+    /**
+     * Re-runs the state machine (and with it the HAL probe) once per
+     * VIVO_DSD_POLL_MS while a DSD stream could be running.  updateVivoHifiDsd()
+     * re-arms it every time it fires and cancels it the moment the window
+     * closes, so it can never outlive playback.
+     */
+    private final Runnable mVivoDsdPoll = new Runnable() {
+        @Override
+        public void run() {
+            mVivoDsdPollScheduled = false;
+            updateVivoHifiDsd(null);
+        }
+    };
 
     private final ContentObserver mVivoSettingsObserver = new ContentObserver(mAudioHandler) {
         @Override
@@ -2498,15 +2549,31 @@ public class AudioService extends IAudioService.Stub
             Log.d(TAG, "vivo hifi applied: " + VIVO_HIFI_PARAM + "=" + hifi);
         }
 
-        // Arm the factory NuPlayer's native DSD pass-through on the same state.
+        // The DSD switch is an arming gate, not evidence of playback: it only
+        // opens the window in which the HAL gets asked whether a native DSD
+        // stream actually exists.  Arming itself stays in-process, because
+        // nothing on this build reads the factory's audio.dsd.hw.out (below).
         final int dsdArmed = (hifi == 1 && dsdMasterOn) ? 1 : 0;
         if (dsdArmed != mVivoDsdApplied) {
             mVivoDsdApplied = dsdArmed;
-            SystemProperties.set(VIVO_DSD_PROP, Integer.toString(dsdArmed));
+            Log.d(TAG, "vivo dsd armed: " + dsdArmed);
+        }
+
+        if (dsdArmed == 1) {
+            // Ask now, then keep asking: the DSD output comes and goes with the
+            // track while the switches stay put.
+            mVivoDsdLive = readVivoHalDsdRunning();
+            if (!mVivoDsdPollScheduled) {
+                mVivoDsdPollScheduled = true;
+                mAudioHandler.postDelayed(mVivoDsdPoll, VIVO_DSD_POLL_MS);
+            }
+        } else {
+            mAudioHandler.removeCallbacks(mVivoDsdPoll);
+            mVivoDsdPollScheduled = false;
+            mVivoDsdLive = false;
         }
 
         publishVivoHifiDsd();
-        scheduleVivoDsdPoll();
     }
 
     /**
@@ -2517,21 +2584,21 @@ public class AudioService extends IAudioService.Stub
     private void publishVivoHifiDsd() {
         final boolean hifi = mVivoHifiApplied == 1;
 
-        final int halDsd = (hifi && mVivoDsdMasterOn) ? readVivoHalDsdRunning() : 0;
-        // Only the HAL knows whether a DSD stream is really being written.
-        // -1 means this HAL cannot answer, and then we fall back to "DSD is
-        // armed" rather than leaving the icon permanently dead.
-        final boolean dsd = (hifi && mVivoDsdMasterOn) && (halDsd != 0);
+        // The badge means "a native DSD stream is being written right now" --
+        // the same fact the factory's AudioFlinger published when its DSD
+        // output thread appeared or went away.  It is NOT the switch state: a
+        // track that is not native DSD stays dark even with DSD switched on,
+        // which is what the factory did.  No fallback to "armed" when the HAL
+        // cannot answer -- that fallback was the bug.
+        final boolean dsd = hifi && mVivoDsdMasterOn && mVivoDsdLive;
 
         Log.d(TAG, "vivo hifi/dsd display: hifi=" + hifi + " dsd=" + dsd
-                + " (is_hw_dsd_running=" + halDsd + ")");
+                + " (is_hw_dsd_running=" + mVivoDsdLive + ")");
 
-        // The DSD poll calls this every VIVO_DSD_POLL_MS, so most calls
-        // report exactly what the previous one did.  Only broadcast on a real
-        // change: each send is a sticky broadcast on an unprotected action,
-        // which ActivityManagerService logs as a WTF every single time, and at
-        // one pair per poll that was enough binder traffic to starve the
-        // output thread -- audible as playback stutter.
+        // Only broadcast on a real change.  Each send is a sticky broadcast on
+        // an unprotected action, which ActivityManagerService logs as a WTF
+        // every single time; suppressing the repeats keeps that off the
+        // playback path.
         final int state = (hifi ? 1 : 0) | (dsd ? 2 : 0);
         if (state == mVivoPublishedState) {
             return;
@@ -2550,55 +2617,31 @@ public class AudioService extends IAudioService.Stub
         mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
     }
 
-    private void scheduleVivoDsdPoll() {
-        if (mVivoHifiApplied != 1 || !mVivoDsdMasterOn || mVivoDsdPollScheduled) {
-            return;
-        }
-        mVivoDsdPollScheduled = true;
-        mAudioHandler.postDelayed(mVivoDsdPoll, VIVO_DSD_POLL_MS);
-    }
-
     /**
-     * @return 1 when the HAL says a DSD stream is running, 0 when it says it is
-     *         not, -1 when it does not answer at all (key unsupported).
+     * Asks the vendor HAL whether a native DSD stream is running right now.
+     *
+     * The HAL answers "is_hw_dsd_running=true" or "=false" (see the constant).
+     * Anything else -- an empty answer, no '=', a HAL without the key -- means
+     * the question could not be answered, and an unanswerable DSD state has to
+     * read as "not running".  There is deliberately no fallback to "the switch
+     * is armed": that fallback is precisely what badged every track as DSD.
      */
-    private int readVivoHalDsdRunning() {
+    private boolean readVivoHalDsdRunning() {
         final String answer = AudioSystem.getParameters(VIVO_DSD_HAL_QUERY);
         if (answer == null) {
-            return -1;
+            return false;
         }
-        String value = answer.trim();
-        if (value.isEmpty()) {
-            return -1;
+        final int start = answer.indexOf(VIVO_DSD_HAL_QUERY);
+        if (start < 0) {
+            return false;
         }
-        final int eq = value.indexOf('=');
-        if (eq >= 0) {
-            value = value.substring(eq + 1).trim();
+        final int eq = answer.indexOf('=', start + VIVO_DSD_HAL_QUERY.length());
+        if (eq < 0) {
+            return false;
         }
-        if ("true".equalsIgnoreCase(value)) {
-            return 1;
-        }
-        if ("false".equalsIgnoreCase(value)) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(value) != 0 ? 1 : 0;
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
-    private void applyVivoHifiDsd(int hifi, int dsd) {
-        if (hifi == mVivoHifiApplied && dsd == mVivoDsdApplied) {
-            return;
-        }
-        mVivoHifiApplied = hifi;
-        mVivoDsdApplied = dsd;
-
-        AudioSystem.setParameters(VIVO_HIFI_PARAM + "=" + hifi);
-        SystemProperties.set(VIVO_DSD_PROP, Integer.toString(dsd));
-        Log.d(TAG, "vivo hifi/dsd applied: " + VIVO_HIFI_PARAM + "=" + hifi
-                + ", " + VIVO_DSD_PROP + "=" + dsd);
+        // Only "true" counts: the HAL emits "true"/"false" (str_parms_add_str
+        // after a csel on its latch), never 1/0.
+        return answer.substring(eq + 1).trim().startsWith("true");
     }
 
     private static Set<String> parseVivoWhitelist(String raw) {
