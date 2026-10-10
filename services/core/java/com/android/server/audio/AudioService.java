@@ -2513,6 +2513,14 @@ public class AudioService extends IAudioService.Stub
         final Set<String> whitelist = parseVivoWhitelist(
                 Settings.Secure.getString(cr, VIVO_WHITELIST_KEY));
 
+        // Two questions are asked of the same whitelist, and they are not the
+        // same question:
+        //   whitelistedActive  -- does a whitelisted player hold a session at
+        //       all (playing *or* paused)?  That, and only that, engages HiFi.
+        //   whitelistedPlaying -- is one actually playing right now?  Only that
+        //       opens the window in which the HAL is polled for a live native
+        //       DSD stream, so the poll still cannot outlive playback.
+        boolean whitelistedActive = false;
         boolean whitelistedPlaying = false;
         if (masterOn && !whitelist.isEmpty()) {
             if (configs == null) {
@@ -2520,21 +2528,37 @@ public class AudioService extends IAudioService.Stub
             }
             final PackageManager pm = mContext.getPackageManager();
             for (AudioPlaybackConfiguration config : configs) {
-                if (config.getPlayerState()
-                        != AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
+                // PD1610: a *paused* whitelisted player keeps HiFi engaged.
+                // The factory's HiFi switch followed the app's audio session,
+                // not play/pause, so pausing never re-routed the DAC.  Dropping
+                // enable_hifi on pause re-runs the HAL's select_devices()
+                // ("switch hifi device"): headphone-hifi is torn down and plain
+                // headphones brought up while the output stream is still open,
+                // the I2S rate is reset to 48 kHz and the ES9038 rail is cycled
+                // -- an audible click on every pause, and another on resume.
+                // Only a stopped or released player ends HiFi.
+                final int playerState = config.getPlayerState();
+                if (playerState != AudioPlaybackConfiguration.PLAYER_STATE_STARTED
+                        && playerState != AudioPlaybackConfiguration.PLAYER_STATE_PAUSED) {
                     continue;
                 }
                 final String[] packages = pm.getPackagesForUid(config.getClientUid());
                 if (packages == null) {
                     continue;
                 }
+                boolean whitelistedUid = false;
                 for (String pkg : packages) {
                     if (whitelist.contains(pkg)) {
-                        whitelistedPlaying = true;
+                        whitelistedUid = true;
                         break;
                     }
                 }
-                if (whitelistedPlaying) {
+                if (!whitelistedUid) {
+                    continue;
+                }
+                whitelistedActive = true;
+                if (playerState == AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
+                    whitelistedPlaying = true;
                     break;
                 }
             }
@@ -2542,7 +2566,7 @@ public class AudioService extends IAudioService.Stub
 
         mVivoDsdMasterOn = dsdMasterOn;
 
-        final int hifi = (masterOn && whitelistedPlaying && mVivoHeadsetConnected) ? 1 : 0;
+        final int hifi = (masterOn && whitelistedActive && mVivoHeadsetConnected) ? 1 : 0;
         if (hifi != mVivoHifiApplied) {
             mVivoHifiApplied = hifi;
             AudioSystem.setParameters(VIVO_HIFI_PARAM + "=" + hifi);
@@ -2553,7 +2577,7 @@ public class AudioService extends IAudioService.Stub
         // opens the window in which the HAL gets asked whether a native DSD
         // stream actually exists.  Arming itself stays in-process, because
         // nothing on this build reads the factory's audio.dsd.hw.out (below).
-        final int dsdArmed = (hifi == 1 && dsdMasterOn) ? 1 : 0;
+        final int dsdArmed = (hifi == 1 && dsdMasterOn && whitelistedPlaying) ? 1 : 0;
         if (dsdArmed != mVivoDsdApplied) {
             mVivoDsdApplied = dsdArmed;
             Log.d(TAG, "vivo dsd armed: " + dsdArmed);
