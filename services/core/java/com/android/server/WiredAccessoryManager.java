@@ -165,12 +165,23 @@ final class WiredAccessoryManager implements WiredAccessoryCallbacks {
             // 0x54 = HEADPHONE|MICROPHONE|LINEOUT.  That combination matches none of the
             // cases below and used to fall through to "default: headset = 0", which told
             // AudioService that nothing was plugged in -- music kept playing on the
-            // speaker.  A stray LINEOUT bit must not hide a real headphone.  A genuine
-            // line-out cable is unaffected: it carries no HEADPHONE bit, so the masking
-            // below leaves SW_LINEOUT_INSERT_BIT alone.
+            // speaker.  A stray LINEOUT bit must not hide a real headphone, and the MBHC
+            // also reports that bit *on its own* while the plug debounces.
+            //
+            // A bare 0x40 used to fall into the LINEOUT case that followed and became
+            // BIT_LINEOUT -> DEVICE_OUT_LINE (0x20000).  The jack then stayed classified
+            // as line-out for the rest of the session: AudioFlinger handed the HAL
+            // devices=0x20000 instead of the factory ROM's 0x8, and apps looking for
+            // TYPE_WIRED_HEADPHONES / TYPE_WIRED_HEADSET reported "no headphone".
+            // The XPlay6 has no line-out cable at all, so SW_LINEOUT_INSERT carries no
+            // information and is never allowed to decide the jack's class: dropped when
+            // HEADPHONE/MICROPHONE is present, folded into the 3-pole headphone case when
+            // it arrives alone.
             int switchBits = mSwitchValues &
                     (SW_HEADPHONE_INSERT_BIT | SW_MICROPHONE_INSERT_BIT | SW_LINEOUT_INSERT_BIT);
-            if ((switchBits & SW_HEADPHONE_INSERT_BIT) != 0) {
+            if (switchBits == SW_LINEOUT_INSERT_BIT) {
+                switchBits = SW_HEADPHONE_INSERT_BIT;
+            } else {
                 switchBits &= ~SW_LINEOUT_INSERT_BIT;
             }
             switch (switchBits) {
@@ -180,10 +191,6 @@ final class WiredAccessoryManager implements WiredAccessoryCallbacks {
 
                 case SW_HEADPHONE_INSERT_BIT:
                     headset = BIT_HEADSET_NO_MIC;
-                    break;
-
-                case SW_LINEOUT_INSERT_BIT:
-                    headset = BIT_LINEOUT;
                     break;
 
                 case SW_HEADPHONE_INSERT_BIT | SW_MICROPHONE_INSERT_BIT:

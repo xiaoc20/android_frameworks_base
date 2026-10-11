@@ -2577,7 +2577,19 @@ public class AudioService extends IAudioService.Stub
         // opens the window in which the HAL gets asked whether a native DSD
         // stream actually exists.  Arming itself stays in-process, because
         // nothing on this build reads the factory's audio.dsd.hw.out (below).
-        final int dsdArmed = (hifi == 1 && dsdMasterOn && whitelistedPlaying) ? 1 : 0;
+        //
+        // The gate is switches + headset only -- deliberately NOT the whitelist
+        // and NOT whitelistedPlaying.  Both of those are derived from
+        // AudioPlaybackConfiguration, which only PlayerBase clients (OpenSL ES /
+        // AAudio) publish; a raw native AudioTrack -- what the factory NuPlayer
+        // used and what our DsdPlayer uses -- never appears there, so the badge
+        // stayed dark while a real native DSD stream was running.  The factory
+        // had no such gate: its AudioFlinger published the badge from the DSD
+        // output thread's own lifetime.  Arming only opens the 1 Hz HAL poll;
+        // the badge itself still means "is_hw_dsd_running is true right now", so
+        // an MP3 track stays dark on its own.  enable_hifi routing above keeps
+        // its whitelist gate untouched.
+        final int dsdArmed = (masterOn && dsdMasterOn && mVivoHeadsetConnected) ? 1 : 0;
         if (dsdArmed != mVivoDsdApplied) {
             mVivoDsdApplied = dsdArmed;
             Log.d(TAG, "vivo dsd armed: " + dsdArmed);
@@ -2614,7 +2626,14 @@ public class AudioService extends IAudioService.Stub
         // track that is not native DSD stays dark even with DSD switched on,
         // which is what the factory did.  No fallback to "armed" when the HAL
         // cannot answer -- that fallback was the bug.
-        final boolean dsd = hifi && mVivoDsdMasterOn && mVivoDsdLive;
+        //
+        // hifi is deliberately NOT a term here.  It is the enable_hifi routing
+        // decision (whitelist + headset) and has nothing to do with whether a
+        // native DSD stream exists; requiring it made the badge unreachable for
+        // any client that does not publish an AudioPlaybackConfiguration.  The
+        // HAL latch cannot go true without the headphone-hifi-DSD device, so it
+        // implies the headset anyway.
+        final boolean dsd = mVivoDsdMasterOn && mVivoDsdLive;
 
         Log.d(TAG, "vivo hifi/dsd display: hifi=" + hifi + " dsd=" + dsd
                 + " (is_hw_dsd_running=" + mVivoDsdLive + ")");
