@@ -2609,7 +2609,7 @@ public class AudioService extends IAudioService.Stub
             mVivoDsdLive = false;
         }
 
-        publishVivoHifiDsd();
+        publishVivoHifiDsd(whitelistedPlaying);
     }
 
     /**
@@ -2617,8 +2617,11 @@ public class AudioService extends IAudioService.Stub
      * factory's media framework used to send (boolean extra "state"), plus both
      * flags so a single sticky intent restores the icons after a restart.
      */
-    private void publishVivoHifiDsd() {
-        final boolean hifi = mVivoHifiApplied == 1;
+    private void publishVivoHifiDsd(boolean whitelistedPlaying) {
+        // The enable_hifi routing decision (master switch + whitelisted app +
+        // headset).  It is what the HAL needs to bring the ES9038 rail up at
+        // all -- including for DSD, which is only reachable once HiFi is on.
+        final boolean hifiRouted = mVivoHifiApplied == 1;
 
         // The badge means "a native DSD stream is being written right now" --
         // the same fact the factory's AudioFlinger published when its DSD
@@ -2626,17 +2629,27 @@ public class AudioService extends IAudioService.Stub
         // track that is not native DSD stays dark even with DSD switched on,
         // which is what the factory did.  No fallback to "armed" when the HAL
         // cannot answer -- that fallback was the bug.
-        //
-        // hifi is deliberately NOT a term here.  It is the enable_hifi routing
-        // decision (whitelist + headset) and has nothing to do with whether a
-        // native DSD stream exists; requiring it made the badge unreachable for
-        // any client that does not publish an AudioPlaybackConfiguration.  The
-        // HAL latch cannot go true without the headphone-hifi-DSD device, so it
-        // implies the headset anyway.
         final boolean dsd = mVivoDsdMasterOn && mVivoDsdLive;
 
+        // The two indicators are one variable with two levels, not two
+        // independent lights.  The factory's own behaviour (user-verified on
+        // the A7 build):
+        //   * playing an ordinary track on the HiFi path -> HiFi only;
+        //   * playing a native DSD track -> DSD only.  The output leaves the
+        //     HiFi path (the kernel's own mode is "hifi mode 2" = DSD vs
+        //     "1" = the 48 kHz HiFi path), so DSD wins over HiFi;
+        //   * paused / stopped -> NEITHER icon.
+        // That last rule is why the HiFi badge hangs on whitelistedPlaying and
+        // not on hifiRouted: hifiRouted (whitelistedActive) is deliberately
+        // held across pause so that enable_hifi never re-runs the HAL's
+        // select_devices() (torn-down/rebuild click) -- routing state is not
+        // badge state.  Before, it lit while paused, and it stayed lit for the
+        // whole of a DSD track: the "two lights at once" report.
+        final boolean hifi = hifiRouted && !dsd && whitelistedPlaying;
+
         Log.d(TAG, "vivo hifi/dsd display: hifi=" + hifi + " dsd=" + dsd
-                + " (is_hw_dsd_running=" + mVivoDsdLive + ")");
+                + " (hifi_routed=" + hifiRouted + ", playing=" + whitelistedPlaying
+                + ", is_hw_dsd_running=" + mVivoDsdLive + ")");
 
         // Only broadcast on a real change.  Each send is a sticky broadcast on
         // an unprotected action, which ActivityManagerService logs as a WTF
