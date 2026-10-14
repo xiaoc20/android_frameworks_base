@@ -651,6 +651,19 @@
     <!-- Used for long press power torch feature - automatic turn off on timeout -->
     <protected-broadcast android:name="com.android.server.policy.PhoneWindowManager.ACTION_TORCH_OFF" />
 
+    <!-- pd1610 (vivo XPlay6): AudioService.sendVivoIndicator() 以内核/音频 HAL 的
+         HiFi / DSD 状态驱动状态栏那块指示牌，发的是 **sticky** 广播。发的人是
+         system_server，收的人是另一个 app（本树的 SystemUI
+         PhoneStatusBarPolicy，以及移植进来的厂件 com.vivo.audiofx），
+         于是 ActivityManagerService.checkBroadcastFromSystem() 每次都要
+         Slog.wtf 一条 "Sending non-protected broadcast ..." —— 实测一次开机
+         43 条 system_server_wtf。按 AOSP 的原意（sticky 广播必须是 protected
+         broadcast）声明成 protected 就干净了：WTF 没了，而且第三方 app 再也
+         冒充不了这两个 sticky。protected 只限制**谁能发**，收的人不受影响
+         （本树里没有任何第三方 app 发这两个 action）。 -->
+    <protected-broadcast android:name="com.bbk.audiofx.hifi.display" />
+    <protected-broadcast android:name="com.vivo.media.dsd.display" />
+
     <!-- ====================================================================== -->
     <!--                          RUNTIME PERMISSIONS                           -->
     <!-- ====================================================================== -->
