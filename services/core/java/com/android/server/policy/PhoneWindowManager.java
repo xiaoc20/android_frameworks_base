@@ -4276,31 +4276,65 @@ public class PhoneWindowManager implements WindowManagerPolicy {
      *   思路补一句, 好让震动走正常的 Android 通路 —— 于是它会自动尊重
      *   「触摸时震动」(HAPTIC_FEEDBACK_ENABLED) 开关和用户的强度设置。
      *
-     * ★只认这一台输入设备, 免得外接蓝牙键盘的 ESC(→BACK) 也跟着震。
-     *   设备 id 首次使用时解析一次(InputManager 的查询带缓存), 之后每次
-     *   只是一次 int 比较 —— 这段代码跑在 input 派发线程上, 不做重活。
+     * ★只认这两台输入设备送来的 HOME/MENU/BACK, 别的一律不震:
+     *   · vivo_virtual_key : 左右两颗电容键(menu/back, Generic.kl 139/158)。
+     *                        这两个本来就是【电容触摸】键 —— 手指搭上去(不用按)就出键事件,
+     *                        天然满足用户要的「摸一下就震」。
+     *   · goodixfp         : 中间那颗 home 键的【轻触态】。指纹 HAL 走
+     *                        GF_IOC_INPUT_KEY_EVENT 灌 253, 经 goodixfp.kl
+     *                        "key 253 HOME" 变成 KEYCODE_HOME。内核侧那道闸门
+     *                        /sys/class/goodix_fp/goodix_fp/enable_key_events 由
+     *                        init.pd1610.rc 在 on boot 置 1(见该文件里的注释)。
+     *                        ⚠ 它到底是「摸」还是「按」触发, 上机核一次 dmesg
+     *                        里 "gf_key.key:253" 的时刻就能定案。
+     * ⛔ 故意【不】收 gpio-keys: 它报的是中间那颗键的【机械按压】(TLMM
+     *    gpio5 → 102)。用户 2026-10-15 定: 「按下去有没有震动无所谓, 没有更好,
+     *    我只是想摸的时候有震动而已」⇒ 按压一律不震。它同时还挂着
+     *    音量键(115/114)和相机键(528/766), 收进来还得再做一轮 keycode 过滤,
+     *    干脆不收。
+     *    设备 id 首次使用时解析一次(InputManager 的查询带缓存), 之后每次只是一次 int 比较
+     *    —— 这段代码跑在 input 派发线程上, 不做重活。
      * ================================================================== */
-    private static final String PD1610_CAP_KEY_DEVICE_NAME = "vivo_virtual_key";
-    private int mPdCapKeyDeviceId = -1;
-    private boolean mPdCapKeyDeviceResolved;
+    private static final String[] PD1610_CAP_KEY_DEVICE_NAMES =
+            { "vivo_virtual_key", "goodixfp" };
+    private final int[] mPdCapKeyDeviceIds = new int[PD1610_CAP_KEY_DEVICE_NAMES.length];
+    private int mPdCapKeyDeviceCount = -1;   // < 0 = 还没解析过
 
-    private boolean isPd1610CapKeyDevice(KeyEvent event) {
-        if (!mPdCapKeyDeviceResolved) {
-            mPdCapKeyDeviceResolved = true;
+    private boolean isPd1610CapKey(KeyEvent event, int keyCode) {
+        if (keyCode != KeyEvent.KEYCODE_HOME
+                && keyCode != KeyEvent.KEYCODE_MENU
+                && keyCode != KeyEvent.KEYCODE_BACK) {
+            return false;
+        }
+        if (mPdCapKeyDeviceCount < 0) {
+            int n = 0;
             try {
                 InputManager im = InputManager.getInstance();
                 for (int id : im.getInputDeviceIds()) {
                     InputDevice d = im.getInputDevice(id);
-                    if (d != null && PD1610_CAP_KEY_DEVICE_NAME.equals(d.getName())) {
-                        mPdCapKeyDeviceId = id;
-                        break;
+                    if (d == null) {
+                        continue;
+                    }
+                    for (String name : PD1610_CAP_KEY_DEVICE_NAMES) {
+                        if (name.equals(d.getName())) {
+                            if (n < mPdCapKeyDeviceIds.length) {
+                                mPdCapKeyDeviceIds[n++] = id;
+                            }
+                            break;
+                        }
                     }
                 }
             } catch (Exception e) {
-                mPdCapKeyDeviceId = -1;
+                n = 0;
+            }
+            mPdCapKeyDeviceCount = n;
+        }
+        for (int i = 0; i < mPdCapKeyDeviceCount; i++) {
+            if (event.getDeviceId() == mPdCapKeyDeviceIds[i]) {
+                return true;
             }
         }
-        return mPdCapKeyDeviceId >= 0 && event.getDeviceId() == mPdCapKeyDeviceId;
+        return false;
     }
 
     /** {@inheritDoc} */
@@ -4390,13 +4424,31 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         // virtual key such as a navigation bar button, only vibrate if flag is enabled.
         final boolean isNavBarVirtKey = ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0);
         // PD1610: 三颗电容键不是触摸屏的 virtual key ⇒ policyFlags 永远不带
-        // FLAG_VIRTUAL(详见 isPd1610CapKeyDevice() 的注释)。把「来自那台
+        // FLAG_VIRTUAL(详见 isPd1610CapKey() 的注释)。把「来自那台
         // 输入设备」也算作虚拟键。
-        final boolean isPdCapKey = isPd1610CapKeyDevice(event);
+        final boolean isPdCapKey = isPd1610CapKey(event, keyCode);
         boolean useHapticFeedback = down
                 && ((policyFlags & WindowManagerPolicy.FLAG_VIRTUAL) != 0 || isPdCapKey)
                 && (!isNavBarVirtKey || mNavBarVirtualKeyHapticFeedbackEnabled)
                 && event.getRepeatCount() == 0;
+
+        // ★PD1610 2026-10-15 ★ 电容键的震动必须在这里就发出去, 不能等本方法末尾那句
+        // performHapticFeedback() —— 中间那颗 home 键(输入设备 gpio-keys, scancode 102)
+        // 在亮屏时会被设备自己的 KeyHandler 吃掉:
+        // device/vivo/pd1610/configpanel/src/org/lineageos/settings/device/KeyHandler.java
+        // 的 handleKeyEvent() 对它返回 null ⇒ 下面 dispatchKeyToKeyHandlers() 返回 true
+        // ⇒ 本方法直接 return 0, 末尾那次震动永远轮不到。这就是「三颗键里只有
+        // home/指纹键不震」的全部原因。(长按能震, 是因为长按走
+        // interceptKeyBeforeDispatching 里更早排下的 mHandler 定时消息, 不经过这个闸门。)
+        // 口径(用户 2026-10-15 定): 只亮屏震; 息屏三颗都不要震。
+        if (isPdCapKey) {
+            if (useHapticFeedback && interactive) {
+                performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY, false,
+                        "Virtual Key - Press");
+            }
+            // 电容键的震动只有上面这一次(亮屏时), 末尾那句对本类键一律不再执行。
+            useHapticFeedback = false;
+        }
 
         // Specific device key handling
         if (dispatchKeyToKeyHandlers(event)) {
