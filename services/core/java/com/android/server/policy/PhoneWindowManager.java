@@ -4261,6 +4261,48 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     }
 
     // TODO(b/117479243): handle it in InputPolicy
+    /* ==================================================================
+     * PD1610: 三颗电容键的震动开关量 —— 由正文的 useHapticFeedback 使用。
+     *
+     * 病灶: 三键由一台独立的 input 设备上报(内核 vivo_key.c 里
+     *   pvivo_key->input_dev->name = INPUT_DEV_NAME = "vivo_virtual_key",
+     *   键码 172 HOMEPAGE / 158 BACK / 139 MENU)。它不是触摸屏, 走不到
+     *   TouchInputMapper::dispatchVirtualKey() —— 那是 AOSP 里唯一会给
+     *   policyFlags 置 WindowManagerPolicy.FLAG_VIRTUAL 的地方 ⇒ 下面
+     *   useHapticFeedback 的第二个条件在本机永远为假, 三键从来没震过。
+     *
+     * 厂件是在 framework 层给震感的(厂件内核 cyttsp_button/vivo_key 里
+     *   一个 vibrator/haptic 调用都没有, 已逐文件 grep 核实), 这里照同样
+     *   思路补一句, 好让震动走正常的 Android 通路 —— 于是它会自动尊重
+     *   「触摸时震动」(HAPTIC_FEEDBACK_ENABLED) 开关和用户的强度设置。
+     *
+     * ★只认这一台输入设备, 免得外接蓝牙键盘的 ESC(→BACK) 也跟着震。
+     *   设备 id 首次使用时解析一次(InputManager 的查询带缓存), 之后每次
+     *   只是一次 int 比较 —— 这段代码跑在 input 派发线程上, 不做重活。
+     * ================================================================== */
+    private static final String PD1610_CAP_KEY_DEVICE_NAME = "vivo_virtual_key";
+    private int mPdCapKeyDeviceId = -1;
+    private boolean mPdCapKeyDeviceResolved;
+
+    private boolean isPd1610CapKeyDevice(KeyEvent event) {
+        if (!mPdCapKeyDeviceResolved) {
+            mPdCapKeyDeviceResolved = true;
+            try {
+                InputManager im = InputManager.getInstance();
+                for (int id : im.getInputDeviceIds()) {
+                    InputDevice d = im.getInputDevice(id);
+                    if (d != null && PD1610_CAP_KEY_DEVICE_NAME.equals(d.getName())) {
+                        mPdCapKeyDeviceId = id;
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                mPdCapKeyDeviceId = -1;
+            }
+        }
+        return mPdCapKeyDeviceId >= 0 && event.getDeviceId() == mPdCapKeyDeviceId;
+    }
+
     /** {@inheritDoc} */
     @Override
     public int interceptKeyBeforeQueueing(KeyEvent event, int policyFlags) {
@@ -4347,8 +4389,12 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         // Enable haptics if down and virtual key without multiple repetitions. If this is a hard
         // virtual key such as a navigation bar button, only vibrate if flag is enabled.
         final boolean isNavBarVirtKey = ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0);
+        // PD1610: 三颗电容键不是触摸屏的 virtual key ⇒ policyFlags 永远不带
+        // FLAG_VIRTUAL(详见 isPd1610CapKeyDevice() 的注释)。把「来自那台
+        // 输入设备」也算作虚拟键。
+        final boolean isPdCapKey = isPd1610CapKeyDevice(event);
         boolean useHapticFeedback = down
-                && (policyFlags & WindowManagerPolicy.FLAG_VIRTUAL) != 0
+                && ((policyFlags & WindowManagerPolicy.FLAG_VIRTUAL) != 0 || isPdCapKey)
                 && (!isNavBarVirtKey || mNavBarVirtualKeyHapticFeedbackEnabled)
                 && event.getRepeatCount() == 0;
 
