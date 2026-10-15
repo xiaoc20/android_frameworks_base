@@ -1234,6 +1234,22 @@ void android_os_Process_removeAllProcessGroups(JNIEnv* env, jobject clazz)
     return removeAllProcessGroups();
 }
 
+void android_os_Process_setProcessFrozen(
+        JNIEnv *env, jobject clazz, jint pid, jint uid, jboolean freeze)
+{
+    bool success = true;
+
+    if (freeze) {
+        success = SetProcessProfiles(uid, pid, {"Frozen"});
+    } else {
+        success = SetProcessProfiles(uid, pid, {"Unfrozen"});
+    }
+
+    if (!success) {
+        signalExceptionForGroupError(env, EINVAL, pid);
+    }
+}
+
 static const JNINativeMethod methods[] = {
     {"getUidForName",       "(Ljava/lang/String;)I", (void*)android_os_Process_getUidForName},
     {"getGidForName",       "(Ljava/lang/String;)I", (void*)android_os_Process_getGidForName},
@@ -1246,6 +1262,7 @@ static const JNINativeMethod methods[] = {
     {"setThreadGroup",      "(II)V", (void*)android_os_Process_setThreadGroup},
     {"setThreadGroupAndCpuset", "(II)V", (void*)android_os_Process_setThreadGroupAndCpuset},
     {"setProcessGroup",     "(II)V", (void*)android_os_Process_setProcessGroup},
+    {"setProcessFrozen",    "(IIZ)V", (void*)android_os_Process_setProcessFrozen},
     {"getProcessGroup",     "(I)I", (void*)android_os_Process_getProcessGroup},
     {"getExclusiveCores",   "()[I", (void*)android_os_Process_getExclusiveCores},
     {"setSwappiness",   "(IZ)Z", (void*)android_os_Process_setSwappiness},

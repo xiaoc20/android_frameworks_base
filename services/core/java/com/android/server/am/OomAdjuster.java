@@ -119,6 +119,11 @@ public final class OomAdjuster {
      */
     AppCompactor mAppCompact;
 
+    /**
+     * PD1610: drives the cgroup v1 freezer for cached processes.
+     */
+    AppFreezer mAppFreezer;
+
     ActivityManagerConstants mConstants;
 
     final long[] mTmpLong = new long[3];
@@ -170,6 +175,7 @@ public final class OomAdjuster {
         mLocalPowerManager = LocalServices.getService(PowerManagerInternal.class);
         mConstants = mService.mConstants;
         mAppCompact = new AppCompactor(mService);
+        mAppFreezer = new AppFreezer(mService);
 
         // The process group is usually critical to the response time of foreground app, so the
         // setter should apply it as soon as possible.
@@ -199,6 +205,7 @@ public final class OomAdjuster {
 
     void initSettings() {
         mAppCompact.init();
+        mAppFreezer.init();
     }
 
     /**
@@ -1835,6 +1842,9 @@ public final class OomAdjuster {
             app.repForegroundActivities = app.hasForegroundActivities();
             changes |= ActivityManagerService.ProcessChangeItem.CHANGE_ACTIVITIES;
         }
+
+        updateAppFreezeStateLocked(app);
+
         if (app.getReportedProcState() != app.getCurProcState()) {
             app.setReportedProcState(app.getCurProcState());
             if (app.thread != null) {
@@ -2144,5 +2154,33 @@ public final class OomAdjuster {
     @GuardedBy("mService")
     void dumpAppCompactorSettings(PrintWriter pw) {
         mAppCompact.dump(pw);
+    }
+
+    @GuardedBy("mService")
+    void dumpAppFreezerSettings(PrintWriter pw) {
+        mAppFreezer.dump(pw);
+    }
+
+    /**
+     * Freeze (or thaw) a cached process according to its current oom_adj.
+     *
+     * Ported from Android 11 OomAdjuster.updateAppFreezeStateLocked(), minus
+     * the shouldNotFreeze handling -- AppFreezer makes that decision itself
+     * from the process's live service bindings.  curAdj is used to freeze and
+     * setAdj to thaw, matching A11: a process that has already been pushed
+     * back into the foreground keeps setAdj below the cached threshold until
+     * applyOomAdjLocked has finished with it.
+     */
+    @GuardedBy("mService")
+    void updateAppFreezeStateLocked(ProcessRecord app) {
+        if (!mAppFreezer.useFreezer()) {
+            return;
+        }
+
+        if (app.curAdj >= ProcessList.CACHED_APP_MIN_ADJ && !app.frozen) {
+            mAppFreezer.freezeAppAsync(app);
+        } else if (app.setAdj < ProcessList.CACHED_APP_MIN_ADJ && app.frozen) {
+            mAppFreezer.unfreezeAppLocked(app);
+        }
     }
 }
