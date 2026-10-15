@@ -573,38 +573,6 @@ public class NotificationEntryManager implements
         return mNotificationRowBinder;
     }
 
-    private class SettingsObserver extends ContentObserver {
-
-        private ContentResolver mCr;
-
-        SettingsObserver(Context context) {
-            super(Dependency.get(Dependency.MAIN_HANDLER));
-            mCr = context.getContentResolver();
-        }
-
-        void observe() {
-            mCr.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.APP_LOCK_HIDE_NOTIFICATIONS), false, this,
-                    UserHandle.USER_ALL);
-            mLockNotifications = Settings.System.getIntForUser(mCr,
-                    Settings.System.APP_LOCK_HIDE_NOTIFICATIONS, 1,
-                    UserHandle.USER_CURRENT) != 0;
-        }
-
-        @Override
-        public void onChange(boolean selfChange) {
-            boolean lockNotifications = Settings.System.getIntForUser(mCr,
-                    Settings.System.APP_LOCK_HIDE_NOTIFICATIONS, 1,
-                    UserHandle.USER_CURRENT) != 0;
-            if (mLockNotifications != lockNotifications) {
-                mLockNotifications = lockNotifications;
-                List<String> lockedPackages = mAppLockManager.getLockedPackages();
-                for (String pkg : lockedPackages) {
-                    updateAppNotifications(pkg, mAppLockManager.isAppOpen(pkg));
-                }
-            }
-        }
-    }
     public void setStatusBar(StatusBar statusBar) {
         mStatusBar = statusBar;
     }
