@@ -1234,6 +1234,53 @@ void android_os_Process_removeAllProcessGroups(JNIEnv* env, jobject clazz)
     return removeAllProcessGroups();
 }
 
+/* /dev/freezer/frozen：init 照着 /etc/cgroups.json 挂的 freezer cgroup 的
+   子组，task_profiles.json 里的 "Frozen" profile 就是把进程 join 进它。 */
+static const char* FREEZER_FROZEN_PROCS = "/dev/freezer/frozen/cgroup.procs";
+
+/*
+ * PD1610: @pid 现在在不在 @procs_path 这个 cgroup 里？
+ *
+ * 能确定就返回确定答案，并置 *unknown = false；读不出来（文件不在/打不开）
+ * 时置 *unknown = true（调用方按"验不了"处理）。
+ *
+ * 为什么需要这个：本树 libprocessgroup 的 SetProcessProfiles() 恒返回 true
+ * （A10 语义：SetCgroupAction::ExecuteForProcess() 的结果只打一行 warning 就
+ * 丢掉了；profile 名字找不到也照样 return true）。Android 11 才让它返回真值
+ * （见 a11ref/processgroup.cpp:118），所以从 A11 照抄的 if (!success) 在本树
+ * 永远不触发 —— 冻没冻上没人知道。这里直接回读内核把进程放到了哪。
+ */
+static bool pidIsInCgroupProcs(const char* procs_path, jint pid, bool* unknown) {
+    *unknown = true;
+
+    int fd = open(procs_path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+
+    /* cgroup.procs 是每行一个 pid、且一定以换行结尾的列表，所以可以
+       直接按 "\n<pid>\n" 匹配，不必分词。前面先塞一个 '\n' 让首行也能命中。 */
+    std::string content("\n");
+    char buf[1024];
+    ssize_t n;
+    bool read_error = false;
+    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+        content.append(buf, static_cast<size_t>(n));
+    }
+    if (n < 0) {
+        read_error = true;
+    }
+    close(fd);
+
+    if (read_error) {
+        return false;
+    }
+
+    *unknown = false;
+    const std::string needle = std::string("\n") + std::to_string(pid) + "\n";
+    return content.find(needle) != std::string::npos;
+}
+
 void android_os_Process_setProcessFrozen(
         JNIEnv *env, jobject clazz, jint pid, jint uid, jboolean freeze)
 {
@@ -1246,6 +1293,29 @@ void android_os_Process_setProcessFrozen(
     }
 
     if (!success) {
+        signalExceptionForGroupError(env, EINVAL, pid);
+        return;
+    }
+
+    /* PD1610: 上面的 SetProcessProfiles() 在本树证明不了任何事情（恒真），
+       所以再回读一次内核的实际结果。对不上，或者压根验不了，都算失败：
+       调用方（AppFreezer.freezeProcess / unfreezeAppLocked）就是拿这次调用
+       的成败去写 app.frozen 位的，而"位在撒谎"正是这个校验要防的病。
+       代价可接受 —— 冻/解冻是低频转换，cgroup.procs 也只是个短文件。 */
+    bool unknown = false;
+    const bool in_frozen = pidIsInCgroupProcs(FREEZER_FROZEN_PROCS, pid, &unknown);
+
+    if (unknown) {
+        ALOGW("setProcessFrozen(%d, %d, %d): cannot verify, %s is not readable",
+              pid, uid, (int) freeze, FREEZER_FROZEN_PROCS);
+        signalExceptionForGroupError(env, EINVAL, pid);
+        return;
+    }
+
+    if (in_frozen != (freeze != JNI_FALSE)) {
+        ALOGW("setProcessFrozen(%d, %d, %d): verification failed, process is %s",
+              pid, uid, (int) freeze, in_frozen ? "still in the frozen cgroup"
+                                                : "not in the frozen cgroup");
         signalExceptionForGroupError(env, EINVAL, pid);
     }
 }

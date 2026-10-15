@@ -106,7 +106,15 @@ public final class AppFreezer {
         if (mEnabled) {
             Slog.i(TAG, "app freezer enabled");
             mThread.start();
-            mHandler = new Handler(mThread.getLooper());
+            /* PD1610 fix: 这里必须是 FreezeHandler。普通 Handler 会把
+               SET_FROZEN_PROCESS_MSG 丢进默认的空 handleMessage()，于是
+               freezeProcess()（唯一调用 Process.setProcessFrozen(pid, uid,
+               true) 的地方）成了死代码 —— 属性开了也一个进程都冻不上。
+               必须留在 mThread.start() 之后：ServiceThread.getLooper() 会
+               阻塞等 looper 建好，线程没活时返回 null，Handler(null) 会抛
+               IllegalArgumentException。与 A11
+               CachedAppOptimizer.java:479 的顺序一致。 */
+            mHandler = new FreezeHandler();
         } else {
             Slog.i(TAG, "app freezer supported but disabled (" + FREEZER_PROP + "=false)");
         }

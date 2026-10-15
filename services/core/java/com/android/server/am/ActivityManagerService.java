@@ -9921,6 +9921,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         synchronized(this) {
             mConstants.dump(pw);
             mOomAdjuster.dumpAppCompactorSettings(pw);
+            mOomAdjuster.dumpAppFreezerSettings(pw);
             pw.println();
             if (dumpAll) {
                 pw.println("-------------------------------------------------------------------------------");
@@ -10321,6 +10322,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                 synchronized (this) {
                     mConstants.dump(pw);
                     mOomAdjuster.dumpAppCompactorSettings(pw);
+                    mOomAdjuster.dumpAppFreezerSettings(pw);
                 }
             } else if ("services".equals(cmd) || "s".equals(cmd)) {
                 if (dumpClient) {
