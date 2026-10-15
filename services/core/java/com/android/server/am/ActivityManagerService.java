@@ -7103,6 +7103,21 @@ public class ActivityManagerService extends IActivityManager.Stub
                                 }
                             }
                         } else {
+                            // ---- pd1610: Provider 自启闸门 --------------------
+                            // 走到这个 else 就是「provider 还没在跑的进程里，要新拉一个」——
+                            // 这是 AMS 里唯一一处由 ContentProvider 访问触发的进程启动
+                            // （本树**没有** A11 的 ContentProviderHelper，全在这一处）。
+                            // 上面那个 if 分支（进程已在跑）不判，免得拦到前台 App
+                            // 自己的 binder 访问。
+                            // 返回 null 是既有路径：下面 proc == null 也是这么返回的，
+                            // 调用方本来就处理得了。
+                            // 开关 persist.sys.pd1610.autostart_provider，默认 false。
+                            // 回滚：删掉这一段（含本注释块）。
+                            if (Pd1610AutostartGate.shouldBlockProviderStart(this,
+                                    cpi.applicationInfo.uid, cpi.applicationInfo.packageName,
+                                    cpi.processName, cpi.applicationInfo.targetSdkVersion)) {
+                                return null;
+                            }
                             checkTime(startTime, "getContentProviderImpl: before start process");
                             proc = startProcessLocked(cpi.processName,
                                     cpr.appInfo, false, 0,

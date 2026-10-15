@@ -1555,6 +1555,25 @@ public final class BroadcastQueue {
             }
         }
 
+        // ---- pd1610: 自启动 / 唤起闸门 ----------------------------------------
+        // 位置讲究：
+        //   * 独立成段，**不要**并进上面 getAppStartModeLocked 那个 if 链 ——
+        //     那条链在 uid 正在跑时返回 APP_START_MODE_NORMAL，并进去本闸门
+        //     就永远不进（它只拦「隐式 + 非 signature 权限」的窄情形）。
+        //   * 必须在下面 setPackageStoppedState(pkg, false) **之前**：那一行会把
+        //     已经 stopped 的包主动拉活，放它后面拦就白拦了。
+        //   * 只有 manifest 接收器会走到这里；动态注册的接收器走
+        //     deliverToRegisteredReceiverLocked，那里 app 必须非 null 且未 killed，
+        //     拉不起死进程，不需要拦。
+        // 开关 persist.sys.pd1610.autostart_gate，默认 false。
+        // 关着时 Pd1610AutostartGate 第一行就 return，零判定零 IO。
+        // 回滚：删掉这一段（含本注释块）。
+        if (!skip && Pd1610AutostartGate.shouldBlockBroadcastWakeup(mService,
+                receiverUid, info.activityInfo.packageName, targetProcess,
+                info.activityInfo.applicationInfo.targetSdkVersion, r)) {
+            skip = true;
+        }
+
         if (!skip && !Intent.ACTION_SHUTDOWN.equals(r.intent.getAction())
                 && !mService.mUserController
                 .isUserRunning(UserHandle.getUserId(info.activityInfo.applicationInfo.uid),
