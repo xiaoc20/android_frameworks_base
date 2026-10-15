@@ -18187,6 +18187,17 @@ public class ActivityManagerService extends IActivityManager.Stub
             ActivityManagerService.this.trimApplications(OomAdjuster.OOM_ADJ_REASON_ACTIVITY);
         }
 
+        @Override
+        public void forceStopPackageForRemovedTask(String packageName, int userId) {
+            final long ident = Binder.clearCallingIdentity();
+            try {
+                Slog.i(TAG, "pd1610: force-stop from recents: " + packageName);
+                forceStopPackage(packageName, userId);
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
+        }
+
         public void killProcessesForRemovedTask(ArrayList<Object> procsToKill) {
             synchronized (ActivityManagerService.this) {
                 for (int i = 0; i < procsToKill.size(); i++) {

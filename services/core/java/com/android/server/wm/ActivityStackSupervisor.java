@@ -126,6 +126,7 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.MergedConfiguration;
+import android.os.SystemProperties;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
@@ -1795,7 +1796,7 @@ public class ActivityStackSupervisor implements RecentTasks.Callbacks {
                 mRootActivityContainer.anyTaskForId(taskId, MATCH_TASK_IN_STACKS_OR_RECENT_TASKS);
         if (tr != null) {
             tr.removeTaskActivitiesLocked(pauseImmediately, reason);
-            cleanUpRemovedTaskLocked(tr, killProcess, removeFromRecents);
+            cleanUpRemovedTaskLocked(tr, killProcess, removeFromRecents, reason);
             mService.getLockTaskController().clearLockedTask(tr);
             mService.getTaskChangeNotificationController().notifyTaskStackChanged();
             if (tr.isPersistable) {
@@ -1807,7 +1808,46 @@ public class ActivityStackSupervisor implements RecentTasks.Callbacks {
         return false;
     }
 
-    void cleanUpRemovedTaskLocked(TaskRecord tr, boolean killProcess, boolean removeFromRecents) {
+    // ---- pd1610: swipe-away == real force stop ------------------------------------------
+    // Swiping a card in recents force-stops the package, like every domestic ROM does.
+    // AOSP only kills the processes and skips apps holding a foreground service, which is
+    // exactly where Chinese apps hide their push/download services.
+    //   persist.sys.pd1610.swipe_kill=0        -> off (AOSP behaviour)
+    //   persist.sys.pd1610.swipe_kill_keep=a,b -> keep-list override (empty = keep nothing)
+    private static final String PD1610_SWIPE_KILL_KEEP_DEFAULT =
+            "com.tencent.mm"            // WeChat
+            + ",com.tencent.mobileqq"   // QQ
+            + ",com.tencent.tim"
+            + ",com.tencent.wework"
+            + ",com.alibaba.android.rimet"      // DingTalk
+            + ",com.tencent.androidqqmail";
+
+    private static boolean isSwipeKillEnabled() {
+        return SystemProperties.getBoolean("persist.sys.pd1610.swipe_kill", true);
+    }
+
+    private static boolean isSwipeKillKeep(String pkg) {
+        final String keep = SystemProperties.get("persist.sys.pd1610.swipe_kill_keep",
+                PD1610_SWIPE_KILL_KEEP_DEFAULT);
+        if (keep.isEmpty()) {
+            return false;
+        }
+        for (String s : keep.split(",")) {
+            if (s.trim().equals(pkg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Never swipe-kill whatever currently acts as home -- it is the user's way back in. */
+    private boolean isSwipeKillHome(String pkg, int userId) {
+        final WindowProcessController home = mService.mHomeProcess;
+        return home != null && home.mUserId == userId && home.mPkgList.contains(pkg);
+    }
+
+    void cleanUpRemovedTaskLocked(TaskRecord tr, boolean killProcess, boolean removeFromRecents,
+            String reason) {
         if (removeFromRecents) {
             mRecentTasks.remove(tr);
         }
@@ -1828,6 +1868,24 @@ public class ActivityStackSupervisor implements RecentTasks.Callbacks {
 
         // Determine if the process(es) for this task should be killed.
         final String pkg = component.getPackageName();
+
+        // pd1610: the user swiped this card away from recents. Do what every domestic ROM
+        // does and really stop the app, instead of the half-measure below that leaves the
+        // package running (and restarting) whenever it holds a foreground service.
+        if (isSwipeKillEnabled() && "remove-task".equals(reason)
+                && !isSwipeKillKeep(pkg) && !isSwipeKillHome(pkg, tr.userId)) {
+            final String killPkg = pkg;
+            final int killUser = tr.userId;
+            Slog.i(TAG, "pd1610: swipe-kill force-stopping " + killPkg + " (user " + killUser
+                    + ")");
+            mService.mH.post(() -> {
+                if (mService.mAmInternal != null) {
+                    mService.mAmInternal.forceStopPackageForRemovedTask(killPkg, killUser);
+                }
+            });
+            return;
+        }
+
         ArrayList<Object> procsToKill = new ArrayList<>();
         ArrayMap<String, SparseArray<WindowProcessController>> pmap =
                 mService.mProcessNames.getMap();

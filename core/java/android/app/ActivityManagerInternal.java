@@ -261,6 +261,13 @@ public abstract class ActivityManagerInternal {
 
     public abstract void disconnectActivityFromServices(Object connectionHolder, Object conns);
     public abstract void cleanUpServices(int userId, ComponentName component, Intent baseIntent);
+
+    /**
+     * pd1610: force-stop a package because the user swiped its task away from recents.
+     * Posted from ActivityStackSupervisor so that AMS is not entered while holding the
+     * activity-manager lock.
+     */
+    public abstract void forceStopPackageForRemovedTask(String packageName, int userId);
     public abstract ActivityInfo getActivityInfoForUser(ActivityInfo aInfo, int userId);
     public abstract void ensureBootCompleted();
     public abstract void updateOomLevelsForDisplay(int displayId);
