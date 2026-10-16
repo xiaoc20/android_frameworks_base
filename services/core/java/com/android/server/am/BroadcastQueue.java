@@ -306,6 +306,14 @@ public final class BroadcastQueue {
             return;
         }
 
+        // ---- PD1610: 投广播前先解冻 --------------------------------------
+        // 冻住的进程不处理任何 binder，而投递广播只抬 procState（下面那句
+        // forceProcessStateUpTo）、**不动 oom_adj** ⇒ updateAppFreezeStateLocked()
+        // 那条路不会替我们解冻，广播就会一直躺在队列里直到 60 s 超时。
+        // 总闸关着 / 进程没冻着时只是一次 `!app.frozen` 判断，零开销。
+        // 回滚：删掉这一行。
+        Pd1610DeepFreeze.thawFor(mService, app, "broadcast");
+
         r.receiver = app.thread.asBinder();
         r.curApp = app;
         app.curReceivers.add(r);

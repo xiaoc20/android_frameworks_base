@@ -16,10 +16,12 @@
 package com.android.server.am;
 
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
 import android.os.SystemProperties;
+import android.util.ArrayMap;
 import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
@@ -27,6 +29,7 @@ import com.android.server.ServiceThread;
 
 import java.io.FileReader;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 
 /**
  * PD1610: cgroup v1 freezer driver for cached processes.
@@ -214,6 +217,74 @@ public final class AppFreezer {
         return false;
     }
 
+    /**
+     * PD1610: 进程所属包名。见 Pd1610DeepFreeze.packageOf()。
+     */
+    private static String packageOf(ProcessRecord app) {
+        return Pd1610DeepFreeze.packageOf(app);
+    }
+
+    /**
+     * PD1610: 这个进程里有没有**真的被 start 过**的 service。
+     * startRequested=true 意味着有人明确要求它跑（下载、播放、录音、录音笔…），
+     * 冻下去就是把它手里的活掐了 —— 这不是「闲置」，所以不冻。
+     * 只被 bind 的 service（B站 的 :download 就是这种，startRequested=false）
+     * 不算：那只是个僵尸绑定，对端一冻它就该跟着睡。
+     */
+    private static boolean hasStartedService(ProcessRecord app) {
+        for (int i = app.services.size() - 1; i >= 0; i--) {
+            ServiceRecord sr = app.services.valueAt(i);
+            if (sr != null && sr.startRequested) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * PD1610: 这个进程的 service 上，有没有**外来的、还活着的** client。
+     *
+     * 与 hasActiveServiceConnections() 的区别就是「外来」和「活着」两个词：
+     *   - client 是本进程自己（自绑，B站 main 与它自己的 IjkMediaPlayerLocalService）
+     *     ⇒ 不算，同一个进程不存在「被别人等」；
+     *   - client 是同包、且不会被冻的进程（推送进程，豁免名表命中）
+     *     ⇒ **算**，它真在等这个 service 回话，冻了它就把推送卡住；
+     *   - client 已经冻着 ⇒ 不算，反正它自己也不跑；
+     *   - 其余（别的包 / 解析不出）⇒ 算，保守。
+     */
+    private static boolean hasForeignServiceConnections(ProcessRecord app, String pkg) {
+        for (int i = app.services.size() - 1; i >= 0; i--) {
+            final ServiceRecord sr = app.services.valueAt(i);
+            if (sr == null) {
+                continue;
+            }
+            final ArrayMap<IBinder, ArrayList<ConnectionRecord>> byBinder = sr.getConnections();
+            for (int b = byBinder.size() - 1; b >= 0; b--) {
+                final ArrayList<ConnectionRecord> conns = byBinder.valueAt(b);
+                for (int c = conns.size() - 1; c >= 0; c--) {
+                    final ConnectionRecord cr = conns.get(c);
+                    final ProcessRecord client = cr.binding != null ? cr.binding.client : null;
+                    if (client == null) {
+                        return true;            // 解析不出来 ⇒ 当外人，保守
+                    }
+                    if (client == app) {
+                        continue;               // 自绑自己
+                    }
+                    if (client.frozen) {
+                        continue;               // 对方也冻着，不用替它保活
+                    }
+                    final String cpkg = packageOf(client);
+                    if (pkg != null && pkg.equals(cpkg)
+                            && !Pd1610DeepFreeze.isExemptProcess(cpkg, client.processName)) {
+                        continue;               // 同包、且它也会被冻 ⇒ 一起
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private final class FreezeHandler extends Handler {
         private FreezeHandler() {
             super(mThread.getLooper());
@@ -234,6 +305,7 @@ public final class AppFreezer {
             final int pid;
             final String name;
             final boolean frozen;
+            boolean deepFrozen = false;
 
             synchronized (mService) {
                 if (!mEnabled) {
@@ -243,23 +315,61 @@ public final class AppFreezer {
                 pid = proc.pid;
                 name = proc.processName;
 
-                // Re-check everything: the process may have moved on during the
-                // FREEZE_TIMEOUT_MS grace period.
-                if (proc.curAdj < ProcessList.CACHED_APP_MIN_ADJ) {
-                    if (DEBUG) {
-                        Slog.d(TAG, "Skipping freeze for process " + pid + " " + name
-                                + " curAdj = " + proc.curAdj);
-                    }
-                    return;
-                }
-
                 if (pid == 0 || proc.frozen) {
                     // Already frozen, or not a real process: either one being
                     // launched or one being killed.
                     return;
                 }
 
-                if (hasActiveServiceConnections(proc)) {
+                // ---- PD1610: 深度冻结（默认关）--------------------------------
+                // 允许名单里的包（自带独立推送进程的国产 App，见 Pd1610DeepFreeze）
+                // 放宽两处：
+                //   ① 阈值 900 → SERVICE_B_ADJ(800)。这类 App 后台常年挂着一个
+                //      bound service，oom_adj 掉不到 900，老的阈值一辈子够不着它。
+                //      800 这一档正好是「被 cached client 绑着的 service」，而仍
+                //      在 PREVIOUS_APP_ADJ(700) 之上 ⇒ 回切上一个 App 依然不冻。
+                //   ② 「还绑着 client 就不冻」→ 只拦**外来**的活 client；同包自绑
+                //      （B站 main ↔ :download/:web）不算，它们一起冻一起醒。
+                // 仍然不冻：推送进程（豁免名表）、有 startRequested service 的
+                // 进程（真有人在让它干活）、有外来活 client 的进程。
+                final String pkg = packageOf(proc);
+                final boolean deep = Pd1610DeepFreeze.isArmed()
+                        && Pd1610DeepFreeze.isDeepPackage(pkg);
+                final int freezeAdj = deep
+                        ? ProcessList.SERVICE_B_ADJ : ProcessList.CACHED_APP_MIN_ADJ;
+
+                // Re-check everything: the process may have moved on during the
+                // FREEZE_TIMEOUT_MS grace period.
+                if (proc.curAdj < freezeAdj) {
+                    if (DEBUG) {
+                        Slog.d(TAG, "Skipping freeze for process " + pid + " " + name
+                                + " curAdj = " + proc.curAdj + " < " + freezeAdj);
+                    }
+                    return;
+                }
+
+                if (deep) {
+                    if (Pd1610DeepFreeze.isExemptProcess(pkg, name)) {
+                        if (DEBUG) {
+                            Slog.d(TAG, "Skipping deep freeze for push process " + name);
+                        }
+                        return;
+                    }
+                    if (hasStartedService(proc)) {
+                        if (DEBUG) {
+                            Slog.d(TAG, "Skipping deep freeze for " + name
+                                    + ": somebody actually started a service in it");
+                        }
+                        return;
+                    }
+                    if (hasForeignServiceConnections(proc, pkg)) {
+                        if (DEBUG) {
+                            Slog.d(TAG, "Skipping deep freeze for " + name
+                                    + ": a live client outside this app is bound to it");
+                        }
+                        return;
+                    }
+                } else if (hasActiveServiceConnections(proc)) {
                     if (DEBUG) {
                         Slog.d(TAG, "Skipping freeze for process " + pid + " " + name
                                 + ": still has bound clients");
@@ -277,10 +387,15 @@ public final class AppFreezer {
                 }
 
                 frozen = proc.frozen;
+                deepFrozen = frozen && deep;
             }
 
-            if (frozen && DEBUG) {
-                Slog.d(TAG, "froze " + pid + " " + name);
+            if (frozen) {
+                if (DEBUG || deepFrozen) {
+                    // 深度冻结按 INFO 记：这是唯一一条「本来不该冻、我们冻了」的
+                    // 路径，现场排查时希望不打开 DEBUG 就能看到。
+                    Slog.i(TAG, "froze " + pid + " " + name + (deepFrozen ? " (deep)" : ""));
+                }
             }
         }
     }
@@ -291,5 +406,6 @@ public final class AppFreezer {
         pw.println("    supported=" + mSupported + " enabled=" + mEnabled);
         pw.println("    " + FREEZER_PROP + "="
                 + SystemProperties.get(FREEZER_PROP, "<unset>"));
+        Pd1610DeepFreeze.dump(pw);
     }
 }

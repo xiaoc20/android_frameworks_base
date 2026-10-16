@@ -2358,6 +2358,9 @@ public final class ActiveServices {
             // If service is not currently running, can't yet bind.
             return false;
         }
+        // ---- PD1610: 派 bind 前先解冻（理由见 Pd1610DeepFreeze.thawFor）----
+        // 回滚：删掉这一行。
+        Pd1610DeepFreeze.thawFor(mAm, r.app, "bind service");
         if (DEBUG_SERVICE) Slog.d(TAG_SERVICE, "requestBind " + i + ": requested=" + i.requested
                 + " rebind=" + rebind);
         if ((!i.requested || rebind) && i.apps.size() > 0) {
@@ -2726,6 +2729,12 @@ public final class ActiveServices {
         if (app.thread == null) {
             throw new RemoteException();
         }
+        // ---- PD1610: 起来服务前先解冻 -------------------------------------
+        // 关键路径：冷冻着的 App 收到推送 / 闹钟 → 推送进程 startService 它 →
+        // 若这里不解冻，scheduleCreateService 那条 oneway 会永远躺在队列里，
+        // 而且这个进程可能一直是 500/800 档，oom_adj 没变 ⇒ 冻结器不会自己解。
+        // 回滚：删掉这一行。
+        Pd1610DeepFreeze.thawFor(mAm, app, "start service");
         if (DEBUG_MU)
             Slog.v(TAG_MU, "realStartServiceLocked, ServiceRecord.uid = " + r.appInfo.uid
                     + ", ProcessRecord.uid = " + app.uid);
@@ -2828,6 +2837,14 @@ public final class ActiveServices {
         final int N = r.pendingStarts.size();
         if (N == 0) {
             return;
+        }
+
+        if (r.app != null) {
+            // ---- PD1610: 派 onStartCommand 前先解冻 -----------------------
+            // 服务早就起来了（创建时解过一次冻），后来又被冻上；现在闹钟/推送
+            // 又要 startService 它 —— 这条 scheduleServiceArgs 也是 oneway。
+            // 回滚：删掉这个 if 块。
+            Pd1610DeepFreeze.thawFor(mAm, r.app, "service args");
         }
 
         ArrayList<ServiceStartArgs> args = new ArrayList<>();

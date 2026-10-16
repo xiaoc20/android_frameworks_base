@@ -7092,6 +7092,12 @@ public class ActivityManagerService extends IActivityManager.Stub
                         ProcessRecord proc = getProcessRecordLocked(
                                 cpi.processName, cpr.appInfo.uid, false);
                         if (proc != null && proc.thread != null && !proc.killed) {
+                            // ---- pd1610: 装 provider 前先解冻 ------------------
+                            // 客户端的下一句就是**同步** binder 调进这个 provider；
+                            // 冻住的进程不处理 binder，不同步解冻会把调用方
+                            // （可能是 system_server 自己）卡死到超时。
+                            // 回滚：删掉这一行。
+                            Pd1610DeepFreeze.thawFor(this, proc, "content provider");
                             if (DEBUG_PROVIDER) Slog.d(TAG_PROVIDER,
                                     "Installing in existing process " + proc);
                             if (!proc.pubProviders.containsKey(cpi.name)) {

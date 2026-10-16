@@ -2177,9 +2177,19 @@ public final class OomAdjuster {
             return;
         }
 
-        if (app.curAdj >= ProcessList.CACHED_APP_MIN_ADJ && !app.frozen) {
+        // PD1610: 深度冻结（默认关）。允许名单里的包用更低的阈值 800，
+        // 因为这类 App 后台常年挂着一个 bound service，adj 掉不到 900。
+        // ⚠ 冻结与解冻**必须同一阈值**，否则会在 800~899 之间来回抽。
+        // 关闸时本行恒等于 ProcessList.CACHED_APP_MIN_ADJ（一个静态字段读），
+        // 行为与补丁前一致。
+        final int threshold = (Pd1610DeepFreeze.isArmed()
+                && Pd1610DeepFreeze.isDeepPackage(Pd1610DeepFreeze.packageOf(app)))
+                ? Pd1610DeepFreeze.deepFreezeAdj()
+                : ProcessList.CACHED_APP_MIN_ADJ;
+
+        if (app.curAdj >= threshold && !app.frozen) {
             mAppFreezer.freezeAppAsync(app);
-        } else if (app.setAdj < ProcessList.CACHED_APP_MIN_ADJ && app.frozen) {
+        } else if (app.setAdj < threshold && app.frozen) {
             mAppFreezer.unfreezeAppLocked(app);
         }
     }
