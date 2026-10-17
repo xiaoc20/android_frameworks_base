@@ -278,6 +278,12 @@ public class NotificationPanelView extends PanelView implements
     private boolean mQsExpansionFromOverscroll;
     private float mLastOverscroll;
     protected boolean mQsExpansionEnabled = true;
+    // pd1610: StatusBar 原本给的 QS 展开开关
+    private boolean mS5QsExpansionEnabledRaw = true;
+    // pd1610: 上一次看到的「是否在锁屏」，用来只在状态切换时推 QS 高度
+    private boolean mS5LastKeyguard;
+    // pd1610: 上一次通知行是否套了 S5 样式（只有解锁后的控制中心才套）
+    private boolean mS5LastStyled;
     private ValueAnimator mQsExpansionAnimator;
     private FlingAnimationUtils mFlingAnimationUtils;
     private int mStatusBarMinHeight;
@@ -528,7 +534,29 @@ public class NotificationPanelView extends PanelView implements
 
         mNotificationContainerParent = findViewById(R.id.notification_container_parent);
         mNotificationStackScroller = findViewById(R.id.notification_stack_scroller);
-        mNotificationStackScroller.setOnHeightChangedListener(this);
+        // pd1610: S5 的「通知」条以下是整块深色底（原机 #001c27），不是透出壁纸
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5) {
+            mNotificationStackScroller.setBackgroundColor(
+                    mContext.getColor(R.color.pd1610_qs_notif_bg));
+            // 通知列表的行是按 NotificationStackScrollLayout 内部字段 mTopPadding
+            // 摆的（View.setPadding 只管滚动区，行照样从 y=0 开始被 QS 盖住）。
+            // 所以只能让 QS 侧的 top padding = QSContainer 实际高度：
+            // calculateQsTopPadding() 里读容器高度，容器量完再补一次更新。
+            final View qsContainer = findViewById(R.id.quick_settings_container);
+            if (qsContainer != null) {
+                qsContainer.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                    @Override
+                    public void onLayoutChange(View v, int left, int top, int right,
+                            int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                        if (bottom - top != oldBottom - oldTop) {
+                            requestScrollerTopPaddingUpdate(false /* animate */);
+                        }
+                    }
+                });
+            }
+        }
+    mNotificationStackScroller.setOnHeightChangedListener(this);
         mNotificationStackScroller.setOverscrollTopChangedListener(this);
         mNotificationStackScroller.setOnEmptySpaceClickListener(this);
         addTrackingHeadsUpListener(mNotificationStackScroller::setTrackingHeadsUp);
@@ -959,6 +987,7 @@ public class NotificationPanelView extends PanelView implements
     }
 
     public void setQsExpansionEnabled(boolean qsExpansionEnabled) {
+        mS5QsExpansionEnabledRaw = qsExpansionEnabled;
         mQsExpansionEnabled = qsExpansionEnabled;
         if (mQs == null) return;
         mQs.setHeaderClickable(qsExpansionEnabled);
@@ -990,7 +1019,10 @@ public class NotificationPanelView extends PanelView implements
             return;
         }
 
-        if (mQsExpanded) {
+        // pd1610: S5 的 QS 恒为展开态，这里若进 shelf-only 就再也清不掉
+        // （清理只在 onExpandingFinished 里，而收起不会再触发它）
+        if (mQsExpanded && com.android.systemui.qs.QsStyle.get(mContext)
+                != com.android.systemui.qs.QsStyle.S5) {
             mQsExpandImmediate = true;
             mNotificationStackScroller.setShouldShowShelfOnly(true);
         }
@@ -1837,10 +1869,42 @@ public class NotificationPanelView extends PanelView implements
     }
 
     private void updateQsState() {
+        // pd1610: S5 两件事
+        //  1) 锁屏不显示控制中心：原生会把 QS 拉出来，于是整块控制中心挂在锁屏上。
+        //     S5 原机锁屏只有通知 ⇒ KEYGUARD 下关掉 QS 展开并把高度收回 0。
+        //  2) 「通知」条下面那层深色底只在解锁态画，锁屏上画了就是糊住壁纸的残留。
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5) {
+            final boolean kg = mBarState == StatusBarState.KEYGUARD;
+            // 3) 通知行样式：锁屏要原生，解锁后的控制中心才是 S5 深色紧凑行。
+            //    行是 inflate 时套上的，状态切换没人重刷 ⇒ 这里自己收/放一遍。
+            final boolean styled = mBarState == StatusBarState.SHADE;
+            if (styled != mS5LastStyled) {
+                mS5LastStyled = styled;
+                restyleS5NotificationRows();
+            }
+            // 通知区深色底只在解锁态画；锁屏上画就是糊住壁纸的「残留」
+            mNotificationStackScroller.setBackgroundColor(kg
+                    ? android.graphics.Color.TRANSPARENT
+                    : mContext.getColor(R.color.pd1610_qs_notif_bg));
+            // 锁屏⇄解锁 切换时把 QS 推到位（setQsExpansion 里不会再钉，
+            // 那个只在被调用时生效；状态切换本身没人调它）
+            if (kg != mS5LastKeyguard) {
+                mS5LastKeyguard = kg;
+                if (mQsMaxExpansionHeight > 0) {
+                    setQsExpansion(kg ? mQsMinExpansionHeight : mQsMaxExpansionHeight);
+                }
+            }
+        }
         mNotificationStackScroller.setQsExpanded(mQsExpanded);
+        // pd1610: S5 —— QS 块恒定展开，native 那句 (!mQsExpanded || ...) 会让
+        // 通知列表永远不可滚动，上滑就被当成拖面板（控制中心跟着划走）。
+        //   ⇒ 解锁态一律允许列表自己滚；锁屏仍然交给面板。
         mNotificationStackScroller.setScrollingEnabled(
                 mBarState != StatusBarState.KEYGUARD && (!mQsExpanded
-                        || mQsExpansionFromOverscroll));
+                        || mQsExpansionFromOverscroll
+                        || com.android.systemui.qs.QsStyle.get(mContext)
+                                == com.android.systemui.qs.QsStyle.S5));
         updateEmptyShadeView();
         mQsNavbarScrim.setVisibility(mBarState == StatusBarState.SHADE && mQsExpanded
                 && !mStackScrollerOverscrolling && mQsScrimEnabled
@@ -1853,7 +1917,36 @@ public class NotificationPanelView extends PanelView implements
         mQs.setExpanded(mQsExpanded);
     }
 
+    /** pd1610: S5 —— 状态切换后把所有已存在的通知行重新套一遍样式（或还原原生）。 */
+    private void restyleS5NotificationRows() {
+        if (mNotificationStackScroller == null) {
+            return;
+        }
+        for (int i = 0; i < mNotificationStackScroller.getChildCount(); i++) {
+            View child = mNotificationStackScroller.getChildAt(i);
+            if (child instanceof ExpandableNotificationRow) {
+                ExpandableNotificationRow row = (ExpandableNotificationRow) child;
+                com.android.systemui.statusbar.notification.row.PdS5NotifStyle
+                        .apply(row.getPrivateLayout());
+                com.android.systemui.statusbar.notification.row.PdS5NotifStyle
+                        .apply(row.getPublicLayout());
+            }
+        }
+    }
+
     private void setQsExpansion(float height) {
+        // pd1610: S5 的磁贴区 / 亮度条 / 通知条和下面的通知列表是一个整体，
+        // 从状态栏划下来就整块平移，不存在「QS 先收起、再划第二下展开」的阶段。
+        // 所以这里直接把 QS 高度钉在全展开值上（首帧 mQsMaxExpansionHeight 还是 0，跳过）。
+        if (mQsMaxExpansionHeight > 0 && mQsExpansionEnabled
+                && com.android.systemui.qs.QsStyle.get(mContext)
+                        == com.android.systemui.qs.QsStyle.S5) {
+            // pd1610: S5 解锁态整块控制中心恒定展开；
+            // 锁屏态钉 0 —— 原生的做法是把 QS 当锁屏的一部分拉出来，
+            // 那正是「控制中心挂在锁屏上」的残留。S5 锁屏只有通知。
+            height = mBarState == StatusBarState.KEYGUARD
+                    ? mQsMinExpansionHeight : mQsMaxExpansionHeight;
+        }
         height = Math.min(Math.max(height, mQsMinExpansionHeight), mQsMaxExpansionHeight);
         mQsFullyExpanded = height == mQsMaxExpansionHeight && mQsMaxExpansionHeight != 0;
         if (height > mQsMinExpansionHeight && !mQsExpanded && !mStackScrollerOverscrolling
@@ -1916,6 +2009,17 @@ public class NotificationPanelView extends PanelView implements
     }
 
     private float calculateQsTopPadding() {
+        // pd1610: S5 的 QS 是一整块（磁贴 + 亮度条 + 通知条），下面是深色通知区。
+        // 原生算法给的是「QS 展开高度 + 通知间距」，S5 下 QS 高度被钉死，
+        // 直接用容器的真实高度最稳。
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5
+                && mBarState != StatusBarState.KEYGUARD) {
+            View qsContainer = findViewById(R.id.quick_settings_container);
+            if (qsContainer != null && qsContainer.getHeight() > 0) {
+                return qsContainer.getHeight();
+            }
+        }
         if (mKeyguardShowing
                 && (mQsExpandImmediate || mIsExpanding && mQsExpandedWhenExpandingStarted)) {
 
@@ -2086,6 +2190,11 @@ public class NotificationPanelView extends PanelView implements
      * @return Whether we should intercept a gesture to open Quick Settings.
      */
     private boolean shouldQuickSettingsIntercept(float x, float y, float yDiff) {
+        // pd1610: S5 的 QS 区不单独收起 —— 上下滑动都交给面板（划上去直接收整块）
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5) {
+            return false;
+        }
         if (!mQsExpansionEnabled || mCollapsedOnDown
                 || (mKeyguardShowing && mKeyguardBypassController.getBypassEnabled())) {
             return false;
@@ -2103,6 +2212,13 @@ public class NotificationPanelView extends PanelView implements
 
     @Override
     protected boolean isScrolledToBottom() {
+        // pd1610: S5 的 QS 恒展开 ⇒ isInSettings() 恒 true ⇒ 原生会让面板吃掉所有上滑。
+        // S5 的通知区永远自己滚，收起控制中心只认底栏留空那一条。
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5
+                && mBarState != StatusBarState.KEYGUARD) {
+            return false;
+        }
         if (!isInSettings()) {
             return mBarState == StatusBarState.KEYGUARD
                     || mNotificationStackScroller.isScrolledToBottom();
@@ -2128,7 +2244,16 @@ public class NotificationPanelView extends PanelView implements
             min = Math.max(min, minHeight);
         }
         int maxHeight;
-        if (mQsExpandImmediate || mQsExpanded || mIsExpanding && mQsExpandedWhenExpandingStarted
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5) {
+            // pd1610: S5 的控制中心是一整块，拖到底就是整屏（深色通知区一直铺到屏幕底部）。
+            // 原生公式在 QS 展开时只算到「QS 高 + 通知列表高」，拖到底会剩半屏。
+            // pd1610: 面板铺满整屏 —— 底下 navigation_bar_height 那条留空区
+            // 也要归控制中心（那里是唯一起作用「上滑收起」的地方）。
+            maxHeight = Math.max(calculatePanelHeightQsExpanded(),
+                    mContext.getResources().getDisplayMetrics().heightPixels);
+        } else if (mQsExpandImmediate || mQsExpanded
+                || mIsExpanding && mQsExpandedWhenExpandingStarted
                 || mPulsing) {
             maxHeight = calculatePanelHeightQsExpanded();
         } else {
@@ -2197,12 +2322,41 @@ public class NotificationPanelView extends PanelView implements
         }
     }
 
+    private View mS5StatusBarView;
+
     private void updatePanelExpanded() {
         boolean isExpanded = !isFullyCollapsed() || mExpectingSynthesizedDown;
         if (mPanelExpanded != isExpanded) {
             mHeadsUpManager.setIsPanelExpanded(isExpanded);
             mStatusBar.setPanelExpanded(isExpanded);
             mPanelExpanded = isExpanded;
+        }
+
+        // pd1610: S5 控制中心第一行就是大时钟/日期，面板一拉开原生状态栏就整条让开。
+        // ⛔ 别按 QS 展开比例判断：S5 下 QS 被钉死在全展开，比例恒为 1，会把状态栏永久藏掉。
+        // 只在解锁态（SHADE）动它，锁屏那条状态栏由锁屏自己管。
+        // ⚠ 每次都压（不只变化时）：导航栏/状态栏重建时状态会被还原。
+        if (mBarState == StatusBarState.SHADE
+                && com.android.systemui.qs.QsStyle.get(mContext)
+                        == com.android.systemui.qs.QsStyle.S5) {
+            if (mS5StatusBarView == null) {
+                mS5StatusBarView = getRootView().findViewById(R.id.status_bar);
+            }
+            if (mS5StatusBarView != null) {
+                mS5StatusBarView.setVisibility(isExpanded ? View.INVISIBLE : View.VISIBLE);
+            }
+            // pd1610: 控制中心拉下来时屏蔽小白条 —— home_handle 设 GONE 后
+            // NavigationHandle 收不到触摸，全面屏的 home 上滑手势随之失效，
+            // 只留左右边缘的返回手势（EdgeBackGestureHandler，另一个机制）。
+            try {
+                com.android.systemui.statusbar.phone.NavigationBarView nbv =
+                        com.android.systemui.statusbar.phone.NavigationBarView.getInstance();
+                if (nbv != null) {
+                    nbv.setS5HomeHandleVisible(!isExpanded);
+                }
+            } catch (Throwable t) {
+                // 导航栏还没起来就忽略
+            }
         }
     }
 
@@ -2489,7 +2643,14 @@ public class NotificationPanelView extends PanelView implements
     protected void onTrackingStarted() {
         mFalsingManager.onTrackingStarted(mStatusBar.isKeyguardCurrentlySecure());
         super.onTrackingStarted();
-        if (mQsFullyExpanded) {
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5) {
+            // pd1610: S5 的 QS 恒「全展开」⇒ 原生这段每次下拉都会把通知收进 shelf
+            // （现场就是一堆图标挤在「通知」条下面）。S5 不需要这个中间态，
+            // 顺手把可能残留的标志清掉。
+            mQsExpandImmediate = false;
+            mNotificationStackScroller.setShouldShowShelfOnly(false);
+        } else if (mQsFullyExpanded) {
             mQsExpandImmediate = true;
             mNotificationStackScroller.setShouldShowShelfOnly(true);
         }

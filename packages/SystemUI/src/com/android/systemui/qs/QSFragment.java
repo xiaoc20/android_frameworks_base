@@ -258,14 +258,19 @@ public class QSFragment extends LifecycleFragment implements QS, CommandQueue.Ca
                 : View.INVISIBLE);
         mHeader.setExpanded((keyguardShowing && !mHeaderAnimating && !mShowCollapsedOnKeyguard)
                 || (mQsExpanded && !mStackScrollerOverscrolling));
-        mFooter.setVisibility(
-                !mQsDisabled && (mQsExpanded || !keyguardShowing || mHeaderAnimating
+        // pd1610: 三星 S5 没有底部那一行 —— 设置/编辑已经搬到头部大时钟旁边
+        mFooter.setVisibility(mS5Style() ? View.GONE
+                : (!mQsDisabled && (mQsExpanded || !keyguardShowing || mHeaderAnimating
                         || mShowCollapsedOnKeyguard)
                 ? View.VISIBLE
-                : View.INVISIBLE);
+                : View.INVISIBLE));
         mFooter.setExpanded((keyguardShowing && !mHeaderAnimating && !mShowCollapsedOnKeyguard)
                 || (mQsExpanded && !mStackScrollerOverscrolling));
         mQSPanel.setVisibility(!mQsDisabled && expandVisually ? View.VISIBLE : View.INVISIBLE);
+    }
+
+    private boolean mS5Style() {
+        return QsStyle.get(getContext()) == QsStyle.S5;
     }
 
     private boolean isKeyguardShowing() {
@@ -458,7 +463,8 @@ public class QSFragment extends LifecycleFragment implements QS, CommandQueue.Ca
         // The customize state changed, so our height changed.
         mContainer.updateExpansion();
         mQSPanel.setVisibility(!mQSCustomizer.isCustomizing() ? View.VISIBLE : View.INVISIBLE);
-        mFooter.setVisibility(!mQSCustomizer.isCustomizing() ? View.VISIBLE : View.INVISIBLE);
+        mFooter.setVisibility(mS5Style() ? View.GONE
+                : !mQSCustomizer.isCustomizing() ? View.VISIBLE : View.INVISIBLE);
         // Let the panel know the position changed and it needs to update where notifications
         // and whatnot are.
         mPanelView.onQsHeightChanged();

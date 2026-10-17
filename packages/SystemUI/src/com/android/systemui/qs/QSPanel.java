@@ -30,8 +30,10 @@ import android.os.Handler;
 import android.os.Message;
 import android.service.quicksettings.Tile;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
@@ -136,6 +138,11 @@ public class QSPanel extends LinearLayout implements Tunable, Callback, Brightne
                 (PagedTileLayout) mTileLayout);
 
         addDivider();
+        // pd1610: S5 原机磁贴和亮度条之间没有这条分隔线
+        // （QuickQSPanel 把 addDivider() 重写成空实现 ⇒ mDivider 是 null）
+        if (QsStyle.get(getContext()) == QsStyle.S5 && mDivider != null) {
+            mDivider.setVisibility(View.GONE);
+        }
 
         mFooter = new QSSecurityFooter(this, context);
         addView(mFooter.getView());
@@ -152,10 +159,21 @@ public class QSPanel extends LinearLayout implements Tunable, Callback, Brightne
         mIsAutomaticBrightnessAvailable = getResources().getBoolean(
                 com.android.internal.R.bool.config_automatic_brightness_available);
 
-        // pd1610: MIUI 风格的亮度条在磁贴下面。原生 / TouchWiz 保持在顶部。
-        if (QsStyle.get(getContext()) == QsStyle.MIUI) {
+        // pd1610: MIUI / 三星 S5 的亮度条都在磁贴下面。原生 / TouchWiz 保持在顶部。
+        if (QsStyle.get(getContext()) == QsStyle.MIUI
+                || QsStyle.get(getContext()) == QsStyle.S5) {
             removeView(mBrightnessView);
             addView(mBrightnessView);
+            if (QsStyle.get(getContext()) == QsStyle.S5) {
+                // 原机磁贴文字和亮度条之间还有 13dp 的青底
+                ViewGroup.LayoutParams lp = mBrightnessView.getLayoutParams();
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ((ViewGroup.MarginLayoutParams) lp).topMargin =
+                            getResources().getDimensionPixelSize(
+                                    R.dimen.pd1610_qs_s5_panel_padding_bottom);
+                    mBrightnessView.setLayoutParams(lp);
+                }
+            }
         }
     }
 
@@ -177,11 +195,33 @@ public class QSPanel extends LinearLayout implements Tunable, Callback, Brightne
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         int height = getPaddingBottom() + getPaddingTop();
         int numChildren = getChildCount();
+        final boolean s5Height = com.android.systemui.qs.QsStyle.get(getContext())
+                == com.android.systemui.qs.QsStyle.S5;
         for (int i = 0; i < numChildren; i++) {
             View child = getChildAt(i);
-            if (child.getVisibility() != View.GONE) height += child.getMeasuredHeight();
+            if (child.getVisibility() != View.GONE) {
+                height += child.getMeasuredHeight();
+                // pd1610: 原生不用 margin，所以这里没算 margin；S5 给亮度条设了
+                // topMargin，不算进来面板就会少 56px，亮度条底边溢出被「通知」条盖住
+                if (s5Height) {
+                    ViewGroup.LayoutParams lp = child.getLayoutParams();
+                    if (lp instanceof ViewGroup.MarginLayoutParams) {
+                        height += ((ViewGroup.MarginLayoutParams) lp).topMargin
+                                + ((ViewGroup.MarginLayoutParams) lp).bottomMargin;
+                    }
+                }
+            }
         }
         setMeasuredDimension(getMeasuredWidth(), height);
+        if (com.android.systemui.qs.QsStyle.get(getContext())
+                == com.android.systemui.qs.QsStyle.S5) {
+            Log.d("pd1610qs", "QSPanel h=" + getMeasuredHeight()
+                    + " spec=" + MeasureSpec.toString(heightMeasureSpec)
+                    + " bright=" + mBrightnessView.getMeasuredHeight()
+                    + " brightLp=" + mBrightnessView.getLayoutParams().height
+                    + " tiles=" + ((View) mTileLayout).getMeasuredHeight()
+                    + " padTop=" + getPaddingTop() + " padBot=" + getPaddingBottom());
+        }
     }
 
     public View getDivider() {
@@ -327,7 +367,15 @@ public class QSPanel extends LinearLayout implements Tunable, Callback, Brightne
 
     public void updateResources() {
         final Resources res = mContext.getResources();
-        setPadding(0, res.getDimensionPixelSize(R.dimen.qs_panel_padding_top), 0, res.getDimensionPixelSize(R.dimen.qs_panel_padding_bottom));
+        // pd1610: S5 的大时钟头部下面不留原生那 48dp 的空白
+        final boolean s5 = QsStyle.get(mContext) == QsStyle.S5;
+        setPadding(0, s5 ? 0 : res.getDimensionPixelSize(R.dimen.qs_panel_padding_top), 0,
+                res.getDimensionPixelSize(R.dimen.qs_panel_padding_bottom));
+        if (s5) {
+            // S5 没有磁贴/页脚之间的分割线，也没有安全页脚（QSSecurityFooter）
+            if (mDivider != null) mDivider.setVisibility(GONE);
+            if (mFooter != null) mFooter.getView().setVisibility(GONE);
+        }
 
         updatePageIndicator();
 

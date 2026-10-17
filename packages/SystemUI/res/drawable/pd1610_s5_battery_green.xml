@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: 三星 S5 主题那套绿色满幅电池（26 档，用户点名要的「之前那个」） -->
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="4" android:drawable="@drawable/pd1610_s5_batg_n00" />
+    <item android:maxLevel="8" android:drawable="@drawable/pd1610_s5_batg_n01" />
+    <item android:maxLevel="12" android:drawable="@drawable/pd1610_s5_batg_n02" />
+    <item android:maxLevel="16" android:drawable="@drawable/pd1610_s5_batg_n03" />
+    <item android:maxLevel="20" android:drawable="@drawable/pd1610_s5_batg_n04" />
+    <item android:maxLevel="24" android:drawable="@drawable/pd1610_s5_batg_n05" />
+    <item android:maxLevel="28" android:drawable="@drawable/pd1610_s5_batg_n06" />
+    <item android:maxLevel="32" android:drawable="@drawable/pd1610_s5_batg_n07" />
+    <item android:maxLevel="36" android:drawable="@drawable/pd1610_s5_batg_n08" />
+    <item android:maxLevel="40" android:drawable="@drawable/pd1610_s5_batg_n09" />
+    <item android:maxLevel="44" android:drawable="@drawable/pd1610_s5_batg_n10" />
+    <item android:maxLevel="48" android:drawable="@drawable/pd1610_s5_batg_n11" />
+    <item android:maxLevel="52" android:drawable="@drawable/pd1610_s5_batg_n12" />
+    <item android:maxLevel="56" android:drawable="@drawable/pd1610_s5_batg_n13" />
+    <item android:maxLevel="60" android:drawable="@drawable/pd1610_s5_batg_n14" />
+    <item android:maxLevel="64" android:drawable="@drawable/pd1610_s5_batg_n15" />
+    <item android:maxLevel="68" android:drawable="@drawable/pd1610_s5_batg_n16" />
+    <item android:maxLevel="72" android:drawable="@drawable/pd1610_s5_batg_n17" />
+    <item android:maxLevel="76" android:drawable="@drawable/pd1610_s5_batg_n18" />
+    <item android:maxLevel="80" android:drawable="@drawable/pd1610_s5_batg_n19" />
+    <item android:maxLevel="84" android:drawable="@drawable/pd1610_s5_batg_n20" />
+    <item android:maxLevel="88" android:drawable="@drawable/pd1610_s5_batg_n21" />
+    <item android:maxLevel="92" android:drawable="@drawable/pd1610_s5_batg_n22" />
+    <item android:maxLevel="96" android:drawable="@drawable/pd1610_s5_batg_n23" />
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_s5_batg_n24" />
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_s5_batg_n25" />
+</level-list>

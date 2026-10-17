@@ -22,6 +22,7 @@ import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.RelativeLayout;
@@ -91,8 +92,32 @@ public class ToggleSliderView extends RelativeLayout implements ToggleSlider {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        applyS5Style();
         if (mListener != null) {
             mListener.onInit(this);
+        }
+    }
+
+    // pd1610: S5 亮度条＝左太阳 + 细蓝条白圆拇指，整体压在一根更深的暗青横条上
+    private void applyS5Style() {
+        if (com.android.systemui.qs.QsStyle.get(getContext())
+                != com.android.systemui.qs.QsStyle.S5) {
+            return;
+        }
+        mSlider.setThumb(getContext().getDrawable(R.drawable.pd1610_s5_br_thumb));
+        mSlider.setProgressDrawable(
+                getContext().getDrawable(R.drawable.pd1610_s5_br_progress));
+        if (getParent() instanceof View) {
+            ((View) getParent()).setBackgroundColor(
+                    getContext().getColor(R.color.pd1610_qs_notif_bg));
+        }
+        if (getParent() instanceof android.view.ViewGroup) {
+            View lead = ((android.view.ViewGroup) getParent())
+                    .findViewById(R.id.pd1610_brightness_lead_icon);
+            if (lead != null) lead.setVisibility(View.VISIBLE);
+            // 原机那条暗青横条高 52dp，但 QSPanel 的高度是 QSContainerImpl 按
+            // 可用空间算死再 EXACTLY 量的，这里再撑高就会把底边顶出去、
+            // 被「通知」条盖住（v16 现场）。保持 XML 的 48dp。
         }
     }
 

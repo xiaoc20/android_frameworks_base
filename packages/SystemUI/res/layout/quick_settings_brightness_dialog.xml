@@ -22,6 +22,17 @@
     android:paddingRight="16dp"
     style="@style/BrightnessDialogContainer">
 
+    <!-- pd1610: S5 亮度条最左边是一颗固定的太阳，不是滑块拇指 -->
+    <ImageView
+        android:id="@+id/pd1610_brightness_lead_icon"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:layout_gravity="center_vertical"
+        android:layout_marginEnd="10dp"
+        android:src="@drawable/pd1610_s5_sun"
+        android:contentDescription="@null"
+        android:visibility="gone" />
+
     <com.android.systemui.settings.ToggleSliderView
         android:id="@+id/brightness_slider"
         android:layout_width="0dp"

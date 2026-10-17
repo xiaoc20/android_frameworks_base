@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: 三星 S5 原机电池 8 档（阈值照抄原机 stat_sys_battery.xml） -->
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="4" android:drawable="@drawable/pd1610_s5_bat_0" />
+    <item android:maxLevel="15" android:drawable="@drawable/pd1610_s5_bat_15" />
+    <item android:maxLevel="35" android:drawable="@drawable/pd1610_s5_bat_28" />
+    <item android:maxLevel="49" android:drawable="@drawable/pd1610_s5_bat_43" />
+    <item android:maxLevel="60" android:drawable="@drawable/pd1610_s5_bat_57" />
+    <item android:maxLevel="75" android:drawable="@drawable/pd1610_s5_bat_71" />
+    <item android:maxLevel="90" android:drawable="@drawable/pd1610_s5_bat_85" />
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_s5_bat_100" />
+</level-list>

@@ -87,6 +87,40 @@ import java.util.function.Consumer;
 
 public class NavigationBarView extends FrameLayout implements
         NavigationModeController.ModeChangedListener, TunerService.Tunable {
+
+    // pd1610: 控制中心（S5 样式）展开时要屏蔽小白条，NavigationBarView 在导航栏窗口里，
+    // 面板拿不到它，这里留一个静态入口。
+    private static NavigationBarView sNavigationBarView;
+
+    public static NavigationBarView getInstance() {
+        return sNavigationBarView;
+    }
+
+    // pd1610: 小白条「该藏」的状态要记住 —— 导航栏重新 inflate / 重新布局
+    // 会把 home_handle 还原成可见，光 setVisibility 一次扛不住。
+    private boolean mS5HideHomeHandle;
+
+    /** pd1610: 显示/隐藏全面屏的小白条；GONE 后 home 上滑手势一起失效。 */
+    public void setS5HomeHandleVisible(boolean visible) {
+        mS5HideHomeHandle = !visible;
+        applyS5HomeHandleVisibility();
+    }
+
+    private void applyS5HomeHandleVisibility() {
+        View handle = findViewById(com.android.systemui.R.id.home_handle);
+        if (handle == null) {
+            return;
+        }
+        handle.setVisibility(mS5HideHomeHandle ? View.GONE : View.VISIBLE);
+        if (!mS5HideHomeHandle) {
+            // pd1610: NavigationBarFragment.onNavBarButtonAlphaChanged() 会按手势 alpha
+            // 把小白条设成 INVISIBLE；恢复时连 alpha 一起还原，否则还是看不见。
+            handle.setAlpha(1f);
+        }
+        android.util.Log.d("PDS5", "handle hide=" + mS5HideHomeHandle
+                + " vis=" + handle.getVisibility() + " alpha=" + handle.getAlpha());
+    }
+
     final static boolean DEBUG = false;
     final static String TAG = "StatusBar/NavBarView";
 
@@ -899,6 +933,10 @@ public class NavigationBarView extends FrameLayout implements
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
+        if (mS5HideHomeHandle) {
+            // pd1610: 导航栏重建会把小白条还原，这里每次布局后重新藏起来。
+            applyS5HomeHandleVisibility();
+        }
 
         mActiveRegion.setEmpty();
         updateButtonLocation(getBackButton(), mBackButtonBounds, true);
@@ -1117,6 +1155,7 @@ public class NavigationBarView extends FrameLayout implements
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        sNavigationBarView = this; // pd1610: 供控制中心切换小白条
         requestApplyInsets();
         reorient();
         onNavigationModeChanged(mNavBarMode);
@@ -1134,6 +1173,9 @@ public class NavigationBarView extends FrameLayout implements
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
+        if (sNavigationBarView == this) {
+            sNavigationBarView = null;
+        }
         Dependency.get(NavigationModeController.class).removeListener(this);
         setUpSwipeUpOnboarding(false);
         for (int i = 0; i < mButtonDispatchers.size(); ++i) {

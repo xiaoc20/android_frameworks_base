@@ -1170,4 +1170,8 @@
     <dimen name="config_rounded_mask_size">@*android:dimen/rounded_corner_radius</dimen>
     <dimen name="config_rounded_mask_size_top">@*android:dimen/rounded_corner_radius_top</dimen>
     <dimen name="config_rounded_mask_size_bottom">@*android:dimen/rounded_corner_radius_top</dimen>
+    <!-- pd1610: 三星 S5 状态栏电池/图标尺寸（照抄原机 battery_icon_width/height） -->
+    <dimen name="pd1610_s5_battery_icon_width">13dp</dimen>
+    <dimen name="pd1610_s5_battery_icon_height">20dp</dimen>
+    <dimen name="pd1610_s5_wifi_signal_size">18dp</dimen>
 </resources>

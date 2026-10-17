@@ -88,9 +88,27 @@ public class TileLayout extends ViewGroup implements QSTileLayout {
         mCellHeight = mContext.getResources().getDimensionPixelSize(R.dimen.qs_tile_height);
         mCellMarginHorizontal = res.getDimensionPixelSize(R.dimen.qs_tile_margin_horizontal);
         mCellMarginVertical= res.getDimensionPixelSize(R.dimen.qs_tile_margin_vertical);
+        if (QsStyle.get(mContext) == QsStyle.S5) {
+            // S5 原机行距 = 圆心间距 91.7dp（275px/1080 宽截图）；本机圈放大到
+            // 58dp 后取 100+4 = 104dp，视觉密度与原机一致
+            mCellHeight = 300;             // 100dp
+            mCellMarginVertical = 12;      // 4dp
+            // 原机 5 个磁贴正好等分 360dp（中心间距 72dp、首圆圆心 36dp），无边距
+            mCellMarginHorizontal = 0;
+        }
         mCellMarginTop = res.getDimensionPixelSize(R.dimen.qs_tile_margin_top);
         mSidePadding = res.getDimensionPixelOffset(R.dimen.qs_tile_layout_margin_side);
+        if (QsStyle.get(mContext) == QsStyle.S5) {
+            mSidePadding = 0;
+            // 磁贴区顶部间距收一点：原机时钟行到圆圈 ~16dp，我们原来 24dp；
+            // 省下来的高度让给亮度条上方的空白
+            mCellMarginTop = (int) (12 * res.getDisplayMetrics().density);
+        }
         mMaxAllowedRows = Math.max(1, getResources().getInteger(R.integer.quick_settings_max_rows));
+        if (QsStyle.get(mContext) == QsStyle.S5) {
+            // S5 原机展开后只有一行 5 个磁贴，其余靠左右翻页
+            mMaxAllowedRows = 1;
+        }
         if (mColumns != columns) {
             mColumns = columns;
             requestLayout();

@@ -428,9 +428,26 @@ public class BrightnessController implements ToggleSlider.Listener {
 
     private void updateIcon(boolean automatic) {
         if (mIcon != null) {
-            mIcon.setImageResource(mAutomatic ?
-                    com.android.systemui.R.drawable.ic_qs_brightness_auto_on :
-                    com.android.systemui.R.drawable.ic_qs_brightness_auto_off);
+            // pd1610: S5 的自动亮度控件是「方框复选框 + 下面两字自动」，
+            // 图是拿原包 checkbox 素材和文字拼成的一张 PNG
+            if (com.android.systemui.qs.QsStyle.get(mContext)
+                    == com.android.systemui.qs.QsStyle.S5) {
+                mIcon.setImageResource(mAutomatic
+                        ? com.android.systemui.R.drawable.pd1610_s5_auto_on
+                        : com.android.systemui.R.drawable.pd1610_s5_auto_off);
+                // 原图 96x140px（32x47dp）会被 48dp 高的条裁掉；
+                // 用户要求再大一点 ⇒ 24x38dp（亮度条本身 48dp，放得下）
+                float d = mContext.getResources().getDisplayMetrics().density;
+                android.view.ViewGroup.LayoutParams lp = mIcon.getLayoutParams();
+                lp.width = (int) (24 * d);
+                lp.height = (int) (38 * d);
+                mIcon.setLayoutParams(lp);
+                mIcon.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            } else {
+                mIcon.setImageResource(mAutomatic ?
+                        com.android.systemui.R.drawable.ic_qs_brightness_auto_on :
+                        com.android.systemui.R.drawable.ic_qs_brightness_auto_off);
+            }
         }
     }
 

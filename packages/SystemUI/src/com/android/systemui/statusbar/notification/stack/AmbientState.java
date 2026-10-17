@@ -335,6 +335,14 @@ public class AmbientState {
 
     @Nullable
     public NotificationShelf getShelf() {
+        // pd1610: S5 关掉了底部的图标堆。只把 shelf 设成 GONE 不够 ——
+        // StackScrollAlgorithm 仍拿它的高度当「底部图标堆」去裁行，把超出视口的
+        // 通知夹到 innerHeight 并 hidden，内容高度永远等于视口高度，于是
+        // isScrolledToBottom() 恒为真（上滑被当成拖面板）。
+        // 这里对算法伪装成「根本没有 shelf」。
+        if (mShelf != null && mShelf.getVisibility() == View.GONE) {
+            return null;
+        }
         return mShelf;
     }
 

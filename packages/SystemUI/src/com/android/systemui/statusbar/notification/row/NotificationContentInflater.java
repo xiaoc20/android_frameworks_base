@@ -531,6 +531,8 @@ public class NotificationContentInflater {
 
             @Override
             public void onViewApplied(View v) {
+                // pd1610: S5 —— 深色通知区上的字色 + 紧凑行（图标搬进标题行）
+                PdS5NotifStyle.apply(v);
                 if (isNewView) {
                     v.setIsRootNamespace(true);
                     applyCallback.setResultView(v);

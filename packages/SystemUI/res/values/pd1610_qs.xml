@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: QS 面板配色。默认值取自三星 S5 原机截图逐像素采样，
+     主题 overlay 覆盖这些名字即可换色（这就是「颜色留给自定义」的接口）。 -->
+<resources>
+    <!-- 面板底色（S5 = #006579） -->
+    <color name="pd1610_qs_panel_bg">#ff006578</color>
+    <!-- 通知区底色（S5 = #001c27） -->
+    <color name="pd1610_qs_notif_bg">#ff001c27</color>
+    <!-- 方块圆底（S5 开/关都是这个深青） -->
+    <color name="pd1610_qs_tile_bg">#ff014753</color>
+    <!-- 图标：开 / 关 / 不可用 -->
+    <color name="pd1610_qs_icon_on">#ffacea00</color>
+    <color name="pd1610_qs_icon_off">#ff669198</color>
+    <color name="pd1610_qs_icon_disabled">#ff3f636b</color>
+    <!-- 标签 -->
+    <color name="pd1610_qs_label">#ffffffff</color>
+    <color name="pd1610_qs_label_dim">#ff9e9e9e</color>
+    <!-- 亮度条 -->
+    <color name="pd1610_qs_slider_active">#ff0998f8</color>
+    <color name="pd1610_qs_slider_track">#ff0d4a63</color>
+    <color name="pd1610_qs_slider_thumb">#ffffffff</color>
+
+    <!-- 三星 S5 头部（大时钟 + 日期 + 齿轮/编辑）的尺寸 -->
+    <dimen name="pd1610_qs_s5_header_height">39dp</dimen>
+    <dimen name="pd1610_qs_s5_header_icon_size">56dp</dimen>
+    <dimen name="pd1610_qs_s5_header_icon_padding">12dp</dimen>
+    <dimen name="pd1610_qs_s5_date_margin_start">8dp</dimen>
+    <dimen name="pd1610_qs_s5_divider_width">1dp</dimen>
+    <dimen name="pd1610_qs_s5_divider_height">26dp</dimen>
+
+    <!-- 三星 S5 的「通知」分隔条 -->
+    <color name="pd1610_qs_notif_bar_bg">#ff005565</color>
+    <dimen name="pd1610_qs_s5_notif_bar_height">40dp</dimen>
+    <dimen name="pd1610_qs_s5_notif_bar_padding_start">11dp</dimen>
+    <dimen name="pd1610_qs_s5_notif_bar_text_size">16sp</dimen>
+    <color name="pd1610_qs_notif_bar_text">#ffeeeeee</color>
+    <dimen name="pd1610_qs_s5_panel_padding_bottom">14dp</dimen>
+    <dimen name="pd1610_qs_s5_brightness_height">52dp</dimen>
+
+    <!-- 原包：时钟 28sp、日期 13sp、时钟左边距 13dp -->
+    <dimen name="pd1610_qs_s5_clock_text_size">28sp</dimen>
+    <dimen name="pd1610_qs_s5_date_text_size">13sp</dimen>
+    <dimen name="pd1610_qs_s5_clock_margin_start">8dp</dimen>
+    <color name="pd1610_qs_s5_date_text">#ffcbcbcb</color>
+    <color name="pd1610_qs_s5_divider">#4cffffff</color>
+</resources>

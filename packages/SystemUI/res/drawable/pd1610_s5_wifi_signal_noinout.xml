@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: 三星 S5 wifi 扇形（静止态，不带箭头） -->
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="0" android:drawable="@drawable/pd1610_s5_wifi_noinout_0" />
+    <item android:maxLevel="1" android:drawable="@drawable/pd1610_s5_wifi_noinout_1" />
+    <item android:maxLevel="2" android:drawable="@drawable/pd1610_s5_wifi_noinout_2" />
+    <item android:maxLevel="3" android:drawable="@drawable/pd1610_s5_wifi_noinout_3" />
+    <item android:maxLevel="4" android:drawable="@drawable/pd1610_s5_wifi_noinout_4" />
+</level-list>

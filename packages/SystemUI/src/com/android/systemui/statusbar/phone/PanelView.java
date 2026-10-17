@@ -329,7 +329,11 @@ public abstract class PanelView extends FrameLayout {
                     onTrackingStarted();
                 }
                 if (isFullyCollapsed() && !mHeadsUpManager.hasPinnedHeadsUp()
-                        && !mStatusBar.isBouncerShowing()) {
+                        && !mStatusBar.isBouncerShowing()
+                        // pd1610: S5 的 peek 高度≈整块面板，点一下状态栏会「全下来」。
+                        // 控制中心只认从上往下滑，所以 S5 不发起 peek。
+                        && com.android.systemui.qs.QsStyle.get(getContext())
+                                != com.android.systemui.qs.QsStyle.S5) {
                     startOpening(event);
                 }
                 break;
@@ -497,7 +501,10 @@ public abstract class PanelView extends FrameLayout {
         } else if (mPanelClosedOnDown && !mHeadsUpManager.hasPinnedHeadsUp() && !mTracking
                 && !mStatusBar.isBouncerShowing() && !mKeyguardMonitor.isKeyguardFadingAway()) {
             long timePassed = SystemClock.uptimeMillis() - mDownTime;
-            if (timePassed < ViewConfiguration.getLongPressTimeout()) {
+            if (com.android.systemui.qs.QsStyle.get(getContext())
+                    == com.android.systemui.qs.QsStyle.S5) {
+                // pd1610: S5 单击状态栏 = 什么都不做（不 peek、不展开）。
+            } else if (timePassed < ViewConfiguration.getLongPressTimeout()) {
                 // Lets show the user that he can actually expand the panel
                 runPeekAnimation(PEEK_ANIMATION_DURATION, getPeekHeight(), true /* collapseWhenFinished */);
             } else {

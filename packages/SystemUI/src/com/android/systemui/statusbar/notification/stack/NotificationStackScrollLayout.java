@@ -286,6 +286,7 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
     private boolean mExpandedInThisMotion;
     private boolean mShouldShowShelfOnly;
     protected boolean mScrollingEnabled;
+    private int mS5BottomBarHeight = -1;
     private boolean mIsCurrentUserSetup;
     protected FooterView mFooterView;
     protected EmptyShadeView mEmptyShadeView;
@@ -832,7 +833,17 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
 
     @Override
     public void draw(Canvas canvas) {
-        super.draw(canvas);
+        // pd1610: S5 的控制中心里，通知行只允许画在「通知条下沿 → 底栏上沿」之间，
+        // 否则滚动时行会盖到上面的 QS 磁贴/亮度条，或者漏进底部留空区。
+        if (com.android.systemui.qs.QsStyle.get(getContext())
+                == com.android.systemui.qs.QsStyle.S5 && !onKeyguard()) {
+            int save = canvas.save();
+            canvas.clipRect(0, mTopPadding, getWidth(), getHeight() - getS5BottomBarHeight());
+            super.draw(canvas);
+            canvas.restoreToCount(save);
+        } else {
+            super.draw(canvas);
+        }
 
         if (DEBUG && ANCHOR_SCROLLING) {
             if (mScrollAnchorView instanceof ExpandableNotificationRow) {
@@ -993,7 +1004,15 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
         // and white AOD separator.
         float colorInterpolation = MathUtils.smoothStep(0.4f /* start */, 1f /* end */,
                 mLinearHideAmount);
-        int color = ColorUtils.blendARGB(mBgColor, Color.WHITE, colorInterpolation);
+        // pd1610: S5 —— 深色通知区只属于「解锁后的控制中心」。
+        // 锁屏也走这层底（onKeyguard 时 mShouldDrawNotificationBackground 仍为真），
+        // 若用深色，锁屏通知下面就糊一大块 #001c27 ⇒ 锁屏用回原生颜色。
+        int bg = mBgColor;
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5 && !onKeyguard()) {
+            bg = mContext.getColor(R.color.pd1610_qs_notif_bg);
+        }
+        int color = ColorUtils.blendARGB(bg, Color.WHITE, colorInterpolation);
 
         if (mCachedBackgroundColor != color) {
             mCachedBackgroundColor = color;
@@ -1353,7 +1372,11 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
             translationY = 0;
             if (mShouldShowShelfOnly) {
                 stackHeight = mTopPadding + mShelf.getIntrinsicHeight();
-            } else if (mQsExpanded) {
+            } else if (mQsExpanded && com.android.systemui.qs.QsStyle.get(getContext())
+                    != com.android.systemui.qs.QsStyle.S5) {
+                // pd1610: S5 的 QS 恒展开，走这段会把栈高算成
+                // mMaxTopPadding + shelf（实测 1056），于是所有通知都被 clamp 进 shelf。
+                // S5 的整块面板本来等高，直接落到下面的 stackHeight = height。
                 int stackStartPosition = mContentHeight - mTopPadding + mIntrinsicPadding;
                 int stackEndPosition = mMaxTopPadding + mShelf.getIntrinsicHeight();
                 if (stackStartPosition <= stackEndPosition) {
@@ -2471,7 +2494,10 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
 
         // The topPadding can be bigger than the regular padding when qs is expanded, in that
         // state the maxPanelHeight and the contentHeight should be bigger
-        mContentHeight = height + Math.max(mIntrinsicPadding, mTopPadding) + mBottomMargin;
+        // pd1610: S5 面板铺满整屏，但行只能画到「底栏上沿」⇒ 内容高度补上底栏那段，
+        // 滚动范围才和「视口高 = 整屏 - 底栏」等价。
+        mContentHeight = height + Math.max(mIntrinsicPadding, mTopPadding) + mBottomMargin
+                + getS5BottomBarHeight();
         updateScrollability();
         clampScrollPosition();
         mAmbientState.setLayoutMaxHeight(mContentHeight);
@@ -2484,8 +2510,27 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
     }
 
     @ShadeViewRefactor(RefactorComponent.SHADE_VIEW)
+    /** pd1610: S5 底栏留空区高度（= 导航栏高度，当前 48dp）。 */
+    private int getS5BottomBarHeight() {
+        if (com.android.systemui.qs.QsStyle.get(getContext())
+                != com.android.systemui.qs.QsStyle.S5 || onKeyguard()) {
+            return 0;
+        }
+        if (mS5BottomBarHeight < 0) {
+            mS5BottomBarHeight = getResources().getDimensionPixelSize(
+                    com.android.internal.R.dimen.navigation_bar_height);
+        }
+        return mS5BottomBarHeight;
+    }
+
     private void updateScrollability() {
-        boolean scrollable = !mQsExpanded && getScrollRange() > 0;
+        // pd1610: S5 控制中心里 QS 永远展开（mQsExpanded 恒 true），原生那行判断
+        // 会把通知列表的滚动整个关掉 —— 上滑就直接变成拖面板。这里给 S5 开绿灯，
+        // 其余滚动逻辑（手势、惯性、回弹）全部沿用系统实现。
+        boolean scrollable = (!mQsExpanded
+                || com.android.systemui.qs.QsStyle.get(getContext())
+                        == com.android.systemui.qs.QsStyle.S5)
+                && getScrollRange() > 0;
         if (scrollable != mScrollable) {
             mScrollable = scrollable;
             setFocusable(scrollable);
@@ -4919,6 +4964,13 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
     @ShadeViewRefactor(RefactorComponent.SHADE_VIEW)
     public void updateFooterView(boolean visible, boolean showDismissView) {
         if (mFooterView == null) {
+            return;
+        }
+        // pd1610: S5 的「清除」在「通知」条右侧，底部原生 footer（清除全部/管理）不要
+        if (com.android.systemui.qs.QsStyle.get(getContext())
+                == com.android.systemui.qs.QsStyle.S5) {
+            mFooterView.setVisible(false, false);
+            mFooterView.setSecondaryVisible(false, false);
             return;
         }
         boolean animate = mIsExpanded && mAnimationsEnabled;

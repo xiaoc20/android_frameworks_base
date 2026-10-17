@@ -20,6 +20,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.service.quicksettings.Tile;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Color;
@@ -31,6 +32,7 @@ import android.widget.ImageView;
 import android.widget.ImageView.ScaleType;
 
 import com.android.systemui.R;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.State;
@@ -53,7 +55,9 @@ public class QSIconViewImpl extends QSIconView {
         super(context);
 
         final Resources res = context.getResources();
-        mIconSizePx = res.getDimensionPixelSize(R.dimen.qs_tile_icon_size);
+        mIconSizePx = QsStyle.get(context) == QsStyle.S5
+                ? 90   // pd1610: S5 圆圈放大到 58dp，图标同比 30dp
+                : res.getDimensionPixelSize(R.dimen.qs_tile_icon_size);
 
         mIcon = createIcon();
         addView(mIcon);
@@ -169,6 +173,21 @@ public class QSIconViewImpl extends QSIconView {
     }
 
     protected int getColor(int state) {
+        // pd1610: TouchWiz/S5 面板上图标恒为白色（原包即如此），不用强调色
+        final int qsStyle = QsStyle.get(getContext());
+        if (qsStyle == QsStyle.S5) {
+            // S5 原图实测：开=亮绿 #ACEA00，关=灰青 #669198，不可用更暗
+            if (state == Tile.STATE_ACTIVE) {
+                return getContext().getColor(R.color.pd1610_qs_icon_on);
+            }
+            return state == Tile.STATE_UNAVAILABLE
+                    ? getContext().getColor(R.color.pd1610_qs_icon_disabled)
+                    : getContext().getColor(R.color.pd1610_qs_icon_off);
+        }
+        if (qsStyle == QsStyle.TOUCHWIZ) {
+            return state == Tile.STATE_UNAVAILABLE
+                    ? 0xFF9E9E9E : 0xFFFFFFFF;
+        }
         return getColorForState(getContext(), state);
     }
 

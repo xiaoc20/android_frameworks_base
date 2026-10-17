@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: 三星 S5 原机充电电池 8 档（帧里带闪电） -->
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="4" android:drawable="@drawable/pd1610_s5_bat_charge_0" />
+    <item android:maxLevel="15" android:drawable="@drawable/pd1610_s5_bat_charge_15" />
+    <item android:maxLevel="35" android:drawable="@drawable/pd1610_s5_bat_charge_28" />
+    <item android:maxLevel="49" android:drawable="@drawable/pd1610_s5_bat_charge_43" />
+    <item android:maxLevel="60" android:drawable="@drawable/pd1610_s5_bat_charge_57" />
+    <item android:maxLevel="75" android:drawable="@drawable/pd1610_s5_bat_charge_71" />
+    <item android:maxLevel="90" android:drawable="@drawable/pd1610_s5_bat_charge_85" />
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_s5_bat_charge_100" />
+</level-list>

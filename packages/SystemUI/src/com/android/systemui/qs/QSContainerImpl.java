@@ -21,13 +21,18 @@ import static android.content.res.Configuration.ORIENTATION_LANDSCAPE;
 
 import android.content.Context;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.Point;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.android.systemui.R;
 import com.android.systemui.qs.QsStyle;
@@ -61,6 +66,11 @@ public class QSContainerImpl extends FrameLayout {
     private boolean mLandscape;
     private boolean mHeaderImageEnabled;
 
+    // pd1610: 三星 S5 的「通知」分隔条（QS 面板最下面那一条青色标题）
+    private View mS5NotifBar;
+    private TextView mS5ClearButton;
+    private int mS5NotifBarHeight;
+
     public QSContainerImpl(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
@@ -76,7 +86,9 @@ public class QSContainerImpl extends FrameLayout {
         mBackground = findViewById(R.id.quick_settings_background);
         mStatusBarBackground = findViewById(R.id.quick_settings_status_bar_background);
         mBackgroundGradient = findViewById(R.id.quick_settings_gradient_view);
-        mSideMargins = getResources().getDimensionPixelSize(R.dimen.notification_side_paddings);
+        // pd1610: S5 的面板是整宽的，原机没有左右留白
+        mSideMargins = QsStyle.get(getContext()) == QsStyle.S5 ? 0
+                : getResources().getDimensionPixelSize(R.dimen.notification_side_paddings);
         mBackgroundImage = findViewById(R.id.qs_header_image_view);
         mBackgroundImage.setClipToOutline(true);
         mLandscape = getResources().getConfiguration().orientation
@@ -85,14 +97,105 @@ public class QSContainerImpl extends FrameLayout {
         mStatusBarBackgroundDrawable = mStatusBarBackground.getBackground();
 
         // pd1610: TouchWiz 4.4 是深色面板 + 白色文字（标签在 QSTileView 里处理）
-        if ((QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)) {
+        if (QsStyle.get(getContext()) == QsStyle.S5) {
+            mBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
+        } else if (QsStyle.get(getContext()) == QsStyle.TOUCHWIZ) {
             mBackground.setBackgroundColor(0xFF000000);
         }
+
+        setupS5NotifBar();
 
         updateResources();
 
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         setMargins();
+    }
+
+    /**
+     * pd1610: 三星 S5 控制中心在「亮度条」和通知列表之间有一条青色「通知」标题条。
+     * 它挂在容器最底下（FrameLayout 的 BOTTOM 重力），容器高度把它算进去，
+     * 通知列表的下移量来自 QSContainer 的测量高度，所以通知会自动排在它下面。
+     * 颜色/高度/字号全部走资源，主题 overlay 换名字就能改。
+     */
+    private void setupS5NotifBar() {
+        if (QsStyle.get(getContext()) != QsStyle.S5) return;
+        final Resources res = getResources();
+        mS5NotifBarHeight = res.getDimensionPixelSize(R.dimen.pd1610_qs_s5_notif_bar_height);
+        // pd1610: S5 通知条右侧「清除」（照 参考逻辑1.png）
+        final int barTextSize = res.getDimensionPixelSize(
+                R.dimen.pd1610_qs_s5_notif_bar_text_size);
+        final int barPad = res.getDimensionPixelSize(
+                R.dimen.pd1610_qs_s5_notif_bar_padding_start);
+        LinearLayout bar = new LinearLayout(getContext());
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = new TextView(getContext());
+        label.setText("通知");
+        label.setTextColor(res.getColor(R.color.pd1610_qs_notif_bar_text));
+        label.setTextSize(TypedValue.COMPLEX_UNIT_PX, barTextSize);
+        label.setIncludeFontPadding(false);
+        label.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        labelLp.leftMargin = barPad;
+        bar.addView(label, labelLp);
+        final TextView clear = new TextView(getContext());
+        mS5ClearButton = clear;
+        clear.setText("清除");
+        clear.setTextColor(res.getColor(R.color.pd1610_qs_notif_bar_text));
+        clear.setTextSize(TypedValue.COMPLEX_UNIT_PX, barTextSize);
+        clear.setIncludeFontPadding(false);
+        clear.setGravity(Gravity.CENTER);
+        clear.setPadding(barPad, 0, barPad, 0);
+        clear.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    // IStatusBarService.onClearAllNotifications() 就是通知堆栈
+                    // 底部那个「全部清除」走的同一个接口
+                    com.android.internal.statusbar.IStatusBarService bar =
+                            com.android.internal.statusbar.IStatusBarService.Stub.asInterface(
+                                    android.os.ServiceManager.getService("statusbar"));
+                    bar.onClearAllNotifications(android.os.UserHandle.myUserId());
+                } catch (Exception e) {
+                    android.util.Log.w("pd1610qs", "clear all failed", e);
+                }
+            }
+        });
+        bar.addView(clear, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        bar.setBackgroundColor(res.getColor(R.color.pd1610_qs_notif_bar_bg));
+        // quick_settings_background / quick_settings_panel 都是 elevation=4dp，
+        // FrameLayout 按 Z 序绘制 ⇒ 必须比它们高，否则这条被背景整块盖住
+        bar.setElevation(res.getDisplayMetrics().density * 6f);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, mS5NotifBarHeight);
+        lp.gravity = Gravity.BOTTOM;
+        addView(bar, lp);
+        mS5NotifBar = bar;
+        mS5NotifBar.setVisibility(View.INVISIBLE);
+    }
+
+    private void updateS5NotifBarVisibility() {
+        if (mS5NotifBar == null) return;
+        final boolean show = !mQsDisabled && mQsExpansion > 0.99f
+                && !mQSCustomizer.isCustomizing();
+        mS5NotifBar.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
+        if (show && mS5ClearButton != null) {
+            // 安卓 10 原生逻辑：只有存在「可清除」的通知时才给清除入口；
+            // USB 这类系统/不可清通知不算（hasActiveClearableNotifications 用的
+            // 就是底部那个清除按钮的判据）
+            View stack = getRootView().findViewById(R.id.notification_stack_scroller);
+            boolean clearable = stack
+                    instanceof com.android.systemui.statusbar.notification.stack
+                            .NotificationStackScrollLayout
+                    && ((com.android.systemui.statusbar.notification.stack
+                            .NotificationStackScrollLayout) stack)
+                            .hasActiveClearableNotifications(
+                                    com.android.systemui.statusbar.notification.stack
+                                            .NotificationStackScrollLayout.ROWS_ALL);
+            mS5ClearButton.setVisibility(clearable ? View.VISIBLE : View.INVISIBLE);
+        }
     }
 
     @Override
@@ -127,12 +230,14 @@ public class QSContainerImpl extends FrameLayout {
         if (navBelow) {
             maxQs -= getResources().getDimensionPixelSize(R.dimen.navigation_bar_height);
         }
+        // pd1610: S5 的「通知」分隔条也算 QS 面板的一部分
+        maxQs -= mS5NotifBarHeight;
         // Measure with EXACTLY. That way, PagedTileLayout will only use excess height and will be
         // measured last, after other views and padding is accounted for.
         mQSPanel.measure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxQs, MeasureSpec.EXACTLY));
         int width = mQSPanel.getMeasuredWidth();
         int height = layoutParams.topMargin + layoutParams.bottomMargin
-                + mQSPanel.getMeasuredHeight() + getPaddingBottom();
+                + mQSPanel.getMeasuredHeight() + getPaddingBottom() + mS5NotifBarHeight;
         super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
         // QSCustomizer will always be the height of the screen, but do this after
@@ -164,6 +269,7 @@ public class QSContainerImpl extends FrameLayout {
         final boolean disabled = (state2 & DISABLE2_QUICK_SETTINGS) != 0;
         if (disabled == mQsDisabled) return;
         mQsDisabled = disabled;
+        updateS5NotifBarVisibility();
         setBackgroundGradientVisibility(getResources().getConfiguration());
         mBackground.setVisibility(mQsDisabled ? View.GONE : View.VISIBLE);
         updateHeaderVisibility();
@@ -171,12 +277,22 @@ public class QSContainerImpl extends FrameLayout {
 
     private void updateResources() {
         mHeaderImageEnabled = mContext.getResources().getBoolean(R.bool.qs_custom_header);
-        int topMargin = mContext.getResources().getDimensionPixelSize(
-                com.android.internal.R.dimen.quick_qs_offset_height) + (mHeaderImageEnabled ?
-                mContext.getResources().getDimensionPixelSize(R.dimen.qs_header_image_offset) : 0);
+        // pd1610: S5 头部是一整行大时钟（72dp），比原生的 48dp 顶栏高
+        final boolean s5 = QsStyle.get(mContext) == QsStyle.S5;
+        int topMargin = s5 ? mContext.getResources().getDimensionPixelSize(
+                    R.dimen.pd1610_qs_s5_header_height)
+                : mContext.getResources().getDimensionPixelSize(
+                        com.android.internal.R.dimen.quick_qs_offset_height)
+                        + (mHeaderImageEnabled ? mContext.getResources().getDimensionPixelSize(
+                                R.dimen.qs_header_image_offset) : 0);
 
         LayoutParams layoutParams = (LayoutParams) mQSPanel.getLayoutParams();
         layoutParams.topMargin  = topMargin;
+        // S5 没有 LOS 底部页脚（齿轮/编辑已经搬到头部），下边距也一起去掉
+        if (s5) {
+            layoutParams.bottomMargin = 0;
+            mQSFooter.setVisibility(View.GONE);
+        }
         mQSPanel.setLayoutParams(layoutParams);
 
         int statusBarSideMargin = mHeaderImageEnabled ? mContext.getResources().getDimensionPixelSize(
@@ -238,6 +354,7 @@ public class QSContainerImpl extends FrameLayout {
 
     public void setExpansion(float expansion) {
         mQsExpansion = expansion;
+        updateS5NotifBarVisibility();
         updateExpansion();
     }
 
@@ -269,7 +386,9 @@ public class QSContainerImpl extends FrameLayout {
 
         mBackgroundImage.setVisibility(mHeaderImageEnabled ? View.VISIBLE : View.GONE);
         mBackgroundGradient.setVisibility(hideGradient ? View.INVISIBLE : View.VISIBLE);
-        if ((QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)) {
+        if (QsStyle.get(getContext()) == QsStyle.S5) {
+            mStatusBarBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
+        } else if (QsStyle.get(getContext()) == QsStyle.TOUCHWIZ) {
             mStatusBarBackground.setBackgroundColor(0xFF000000);
         } else {
             mStatusBarBackground.setBackground(hideGradient ? null : mStatusBarBackgroundDrawable);

@@ -96,9 +96,6 @@
     <item type="drawable" name="exthm_stat_sys_battery_charging_25">@null</item>
 
     <!-- Dark Battery Resources -->
-    <item type="drawable" name="exthm_stat_sys_battery_charging_dark">@null</item>
-    <item type="drawable" name="exthm_stat_sys_battery_normal_dark">@null</item>
-    <item type="drawable" name="exthm_stat_sys_battery_powersave_dark">@null</item>
     <item type="drawable" name="exthm_stat_sys_battery_normal_00_dark">@null</item>
     <item type="drawable" name="exthm_stat_sys_battery_normal_01_dark">@null</item>
     <item type="drawable" name="exthm_stat_sys_battery_normal_02_dark">@null</item>

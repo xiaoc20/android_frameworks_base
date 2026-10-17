@@ -72,7 +72,12 @@ public class QSTileView extends QSTileBaseView {
                 android.R.attr.textColorSecondary);
         // pd1610: TouchWiz 是深色面板，标签强制白色
         final int qsStyle = QsStyle.get(getContext());
-        if (qsStyle == QsStyle.TOUCHWIZ || qsStyle == QsStyle.S5) {
+        if (qsStyle == QsStyle.S5) {
+            mColorLabelDefault = ColorStateList.valueOf(
+                    getContext().getColor(R.color.pd1610_qs_label));
+            mColorLabelUnavailable = ColorStateList.valueOf(
+                    getContext().getColor(R.color.pd1610_qs_label_dim));
+        } else if (qsStyle == QsStyle.TOUCHWIZ) {
             mColorLabelDefault = ColorStateList.valueOf(0xFFFFFFFF);
             mColorLabelUnavailable = ColorStateList.valueOf(0xFF9E9E9E);
         }
@@ -105,6 +110,20 @@ public class QSTileView extends QSTileBaseView {
         mExpandIndicator = mLabelContainer.findViewById(R.id.expand_indicator);
         mExpandSpace = mLabelContainer.findViewById(R.id.expand_space);
         mSecondLine = mLabelContainer.findViewById(R.id.app_label);
+        if (QsStyle.get(getContext()) == QsStyle.S5) {
+            // S5 的标签允许折成两行（原机「移动/数据」「声音/模式」就是上下两行），
+            // 而且必须限制在格子宽度内，否则五列窄格子会溢出屏幕
+            mLabel.setSingleLine(false);
+            mLabel.setMaxLines(2);
+            mLabel.setEllipsize(TextUtils.TruncateAt.END);
+            mLabel.setHorizontallyScrolling(false);
+            android.widget.LinearLayout.LayoutParams llp =
+                    (android.widget.LinearLayout.LayoutParams) mLabel.getLayoutParams();
+            llp.width = 0;
+            llp.weight = 1f;
+            mLabel.setLayoutParams(llp);
+            mLabelContainer.setClipChildren(true);
+        }
         addView(mLabelContainer);
     }
 
@@ -136,8 +155,17 @@ public class QSTileView extends QSTileBaseView {
                     : View.VISIBLE);
         }
         boolean dualTarget = DUAL_TARGET_ALLOWED && state.dualTarget;
-        mExpandIndicator.setVisibility(dualTarget ? View.VISIBLE : View.GONE);
-        mExpandSpace.setVisibility(dualTarget ? View.VISIBLE : View.GONE);
+        // pd1610: TouchWiz/S5 是五列窄格子，22dp 占位 + 18dp 箭头会把标签挤出去
+        // （「移动数据」被裁成「动数」），这两个风格一律不显示展开件
+        final int qsStyle = QsStyle.get(getContext());
+        if (qsStyle == QsStyle.TOUCHWIZ || qsStyle == QsStyle.S5) {
+            dualTarget = false;
+            mExpandIndicator.setVisibility(View.GONE);
+            mExpandSpace.setVisibility(View.GONE);
+        } else {
+            mExpandIndicator.setVisibility(dualTarget ? View.VISIBLE : View.GONE);
+            mExpandSpace.setVisibility(dualTarget ? View.VISIBLE : View.GONE);
+        }
         mLabelContainer.setContentDescription(dualTarget ? state.dualLabelContentDescription
                 : null);
         if (dualTarget != mLabelContainer.isClickable()) {

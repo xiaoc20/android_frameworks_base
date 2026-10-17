@@ -451,7 +451,11 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
                 mFooterText.setText(mFooterTextContent);
             }
             mRootView.setVisibility(mIsVisible ? View.VISIBLE : View.GONE);
-            if (mDivider != null) mDivider.setVisibility(mIsVisible ? View.GONE : View.VISIBLE);
+            // pd1610: S5 磁贴和亮度条之间不要那根分隔线。这里每刷一次都会把
+            // QSPanel 已经 GONE 掉的 mDivider 又设回 VISIBLE，所以 S5 下别碰。
+            if (mDivider != null && QsStyle.get(mContext) != QsStyle.S5) {
+                mDivider.setVisibility(mIsVisible ? View.GONE : View.VISIBLE);
+            }
         }
     };
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: S5 亮度条拇指＝纯白圆 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <size android:width="22dp" android:height="22dp" />
+    <solid android:color="@color/pd1610_qs_slider_thumb" />
+</shape>

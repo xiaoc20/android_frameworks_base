@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: S5 亮度条＝细方头蓝条 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background" android:gravity="center_vertical|fill_horizontal">
+        <shape android:shape="rectangle">
+            <size android:height="4dp" />
+            <solid android:color="@color/pd1610_qs_slider_track" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress" android:gravity="center_vertical|fill_horizontal">
+        <scale android:scaleWidth="100%">
+            <shape android:shape="rectangle">
+                <size android:height="4dp" />
+                <solid android:color="@color/pd1610_qs_slider_active" />
+            </shape>
+        </scale>
+    </item>
+</layer-list>

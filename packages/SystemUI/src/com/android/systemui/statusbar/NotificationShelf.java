@@ -156,6 +156,11 @@ public class NotificationShelf extends ActivatableNotificationView implements
         mShelfIcons.setPadding(padding, 0, padding, 0);
         mScrollFastThreshold = res.getDimensionPixelOffset(R.dimen.scroll_fast_threshold);
         mShowNotificationShelf = res.getBoolean(R.bool.config_showNotificationShelf);
+        // pd1610: S5 底部没有「图标堆」那条 shelf（清除按钮在通知条上）
+        if (com.android.systemui.qs.QsStyle.get(getContext())
+                == com.android.systemui.qs.QsStyle.S5) {
+            mShowNotificationShelf = false;
+        }
         mIconSize = res.getDimensionPixelSize(com.android.internal.R.dimen.status_bar_icon_size);
         mHiddenShelfIconSize = res.getDimensionPixelOffset(R.dimen.hidden_shelf_icon_size);
         mGapHeight = res.getDimensionPixelSize(R.dimen.qs_notification_padding);
@@ -169,6 +174,17 @@ public class NotificationShelf extends ActivatableNotificationView implements
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         initDimens();
+    }
+
+    @Override
+    public int getIntrinsicHeight() {
+        // pd1610: S5 不显示 shelf。只把它 GONE 掉不够 —— StackScrollAlgorithm
+        // 仍用这个高度当「底部图标堆」去裁行（越过的行 hidden/inShelf，永远看不到），
+        // 并且 isScrolledToBottom() 恒为真 ⇒ 上滑变成拖面板。
+        if (!mShowNotificationShelf) {
+            return 0;
+        }
+        return super.getIntrinsicHeight();
     }
 
     @Override

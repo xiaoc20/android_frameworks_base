@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610: 同上，充电帧（带闪电） -->
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="4" android:drawable="@drawable/pd1610_s5_batg_c00" />
+    <item android:maxLevel="8" android:drawable="@drawable/pd1610_s5_batg_c01" />
+    <item android:maxLevel="12" android:drawable="@drawable/pd1610_s5_batg_c02" />
+    <item android:maxLevel="16" android:drawable="@drawable/pd1610_s5_batg_c03" />
+    <item android:maxLevel="20" android:drawable="@drawable/pd1610_s5_batg_c04" />
+    <item android:maxLevel="24" android:drawable="@drawable/pd1610_s5_batg_c05" />
+    <item android:maxLevel="28" android:drawable="@drawable/pd1610_s5_batg_c06" />
+    <item android:maxLevel="32" android:drawable="@drawable/pd1610_s5_batg_c07" />
+    <item android:maxLevel="36" android:drawable="@drawable/pd1610_s5_batg_c08" />
+    <item android:maxLevel="40" android:drawable="@drawable/pd1610_s5_batg_c09" />
+    <item android:maxLevel="44" android:drawable="@drawable/pd1610_s5_batg_c10" />
+    <item android:maxLevel="48" android:drawable="@drawable/pd1610_s5_batg_c11" />
+    <item android:maxLevel="52" android:drawable="@drawable/pd1610_s5_batg_c12" />
+    <item android:maxLevel="56" android:drawable="@drawable/pd1610_s5_batg_c13" />
+    <item android:maxLevel="60" android:drawable="@drawable/pd1610_s5_batg_c14" />
+    <item android:maxLevel="64" android:drawable="@drawable/pd1610_s5_batg_c15" />
+    <item android:maxLevel="68" android:drawable="@drawable/pd1610_s5_batg_c16" />
+    <item android:maxLevel="72" android:drawable="@drawable/pd1610_s5_batg_c17" />
+    <item android:maxLevel="76" android:drawable="@drawable/pd1610_s5_batg_c18" />
+    <item android:maxLevel="80" android:drawable="@drawable/pd1610_s5_batg_c19" />
+    <item android:maxLevel="84" android:drawable="@drawable/pd1610_s5_batg_c20" />
+    <item android:maxLevel="88" android:drawable="@drawable/pd1610_s5_batg_c21" />
+    <item android:maxLevel="92" android:drawable="@drawable/pd1610_s5_batg_c22" />
+    <item android:maxLevel="96" android:drawable="@drawable/pd1610_s5_batg_c23" />
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_s5_batg_c24" />
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_s5_batg_c25" />
+</level-list>

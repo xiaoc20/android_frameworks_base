@@ -26,6 +26,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -52,6 +53,10 @@ public class StatusBarMobileView extends FrameLayout implements DarkReceiver,
     private String mSlot;
     private MobileIconState mState;
     private SignalDrawable mMobileDrawable;
+
+    /* pd1610: S5 模式不用 SignalDrawable，直接用三星的四格信号条图 */
+    private boolean mS5Style;
+    private Drawable mS5SignalDrawable;
     private View mInoutContainer;
     private ImageView mIn;
     private ImageView mOut;
@@ -111,7 +116,14 @@ public class StatusBarMobileView extends FrameLayout implements DarkReceiver,
         mInoutContainer = findViewById(R.id.inout_container);
 
         mMobileDrawable = new SignalDrawable(getContext());
-        mMobile.setImageDrawable(mMobileDrawable);
+        mS5Style = com.android.systemui.qs.QsStyle.get(getContext())
+                == com.android.systemui.qs.QsStyle.S5;
+        if (mS5Style) {
+            mS5SignalDrawable = getContext().getDrawable(R.drawable.pd1610_s5_signal);
+            mMobile.setImageDrawable(mS5SignalDrawable);
+        } else {
+            mMobile.setImageDrawable(mMobileDrawable);
+        }
 
         initDotView();
     }
@@ -124,6 +136,18 @@ public class StatusBarMobileView extends FrameLayout implements DarkReceiver,
         LayoutParams lp = new LayoutParams(width, width);
         lp.gravity = Gravity.CENTER_VERTICAL | Gravity.START;
         addView(mDotView, lp);
+    }
+
+    /**
+     * pd1610: strengthId 是 SignalDrawable 的打包状态（低 8 位是格数）；
+     * S5 模式把格数直接喂给三星的 level-list。
+     */
+    private void setSignalLevel(int strengthId) {
+        if (mS5Style && mS5SignalDrawable != null) {
+            mS5SignalDrawable.setLevel(Math.min(strengthId & 0xff, 4));
+        } else {
+            mMobileDrawable.setLevel(strengthId);
+        }
     }
 
     public void applyMobileState(MobileIconState state) {
@@ -152,7 +176,7 @@ public class StatusBarMobileView extends FrameLayout implements DarkReceiver,
         } else {
             mMobileGroup.setVisibility(View.VISIBLE);
         }
-        mMobileDrawable.setLevel(mState.strengthId);
+        setSignalLevel(mState.strengthId);
         if (mState.typeId > 0) {
             mMobileType.setContentDescription(mState.typeContentDescription);
             mMobileType.setImageResource(mState.typeId);
@@ -178,7 +202,7 @@ public class StatusBarMobileView extends FrameLayout implements DarkReceiver,
             needsLayout = true;
         }
         if (mState.strengthId != state.strengthId) {
-            mMobileDrawable.setLevel(state.strengthId);
+            setSignalLevel(state.strengthId);
         }
         if (mState.typeId != state.typeId) {
             needsLayout |= state.typeId == 0 || mState.typeId == 0;

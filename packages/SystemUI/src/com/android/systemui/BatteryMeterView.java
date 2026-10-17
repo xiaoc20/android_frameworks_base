@@ -101,6 +101,10 @@ public class BatteryMeterView extends LinearLayout implements
     private final Drawable[] mCustomChargingDrawable = new Drawable[2];
     private final Drawable[] mCustomPowersaveDrawable = new Drawable[2];
 
+    /* pd1610: 三星 S5 原机电池 —— 帧是白色 + alpha，乘上原机取样绿 (145,172,35) */
+    private static final int S5_BATTERY_COLOR = 0xffa2c42a;
+    private boolean mS5Battery;
+
     private final String mSlotBattery;
     private final ImageView mBatteryIconView;
     private final CurrentUserTracker mUserTracker;
@@ -170,6 +174,19 @@ public class BatteryMeterView extends LinearLayout implements
             }
         }
 
+        // pd1610: S5 模式的电池 = 三星 S5 原机那套 8 档帧（白色 + alpha 蒙版），
+        // 按原机尺寸 12x18dp 显示，并染成原机取样绿。
+        // （用户 2026-10-18：放大版满幅绿帧「不是这版」，要 S5 原版）
+        mS5Battery = com.android.systemui.qs.QsStyle.get(context)
+                == com.android.systemui.qs.QsStyle.S5;
+        if (mS5Battery) {
+            mUseCustomDrawable = true;
+            mCustomNormalDrawable[0] = context.getDrawable(R.drawable.pd1610_s5_battery);
+            mCustomChargingDrawable[0] =
+                    context.getDrawable(R.drawable.pd1610_s5_battery_charging);
+            mCustomPowersaveDrawable[0] = context.getDrawable(R.drawable.pd1610_s5_battery);
+        }
+
         mSettingObserver = new SettingObserver(new Handler(context.getMainLooper()));
 
         addOnAttachStateChangeListener(
@@ -186,8 +203,12 @@ public class BatteryMeterView extends LinearLayout implements
             mBatteryIconView.setImageDrawable(mThemedDrawable);
         }
         final MarginLayoutParams mlp = new MarginLayoutParams(
-                getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_width),
-                getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_height));
+                getResources().getDimensionPixelSize(mS5Battery
+                        ? R.dimen.pd1610_s5_battery_icon_width
+                        : R.dimen.status_bar_battery_icon_width),
+                getResources().getDimensionPixelSize(mS5Battery
+                        ? R.dimen.pd1610_s5_battery_icon_height
+                        : R.dimen.status_bar_battery_icon_height));
         mlp.setMargins(0, 0, 0,
                 getResources().getDimensionPixelOffset(R.dimen.battery_margin_bottom));
         addView(mBatteryIconView, mlp);
@@ -387,7 +408,15 @@ public class BatteryMeterView extends LinearLayout implements
         }
     }
 
+    // pd1610: S5 电池帧已烘焙成实心两色（亮绿/暗绿/黑闪电），不再 setTint
+
     private void updateCustomizeBatteryView() {
+        if (mS5Battery) {
+            mBatteryIconView.setImageDrawable(mCharging
+                    ? mCustomChargingDrawable[0] : mCustomNormalDrawable[0]);
+            mBatteryIconView.setImageLevel(mLevel);
+            return;
+        }
         if (mCharging) {
             mBatteryIconView.setImageDrawable(mIsDark && mCustomChargingDrawable[1] != null ? mCustomChargingDrawable[1] : mCustomChargingDrawable[0]);
         } else if (mThemedDrawable != null && mThemedDrawable.getPowerSaveEnabled()) {
@@ -505,10 +534,14 @@ public class BatteryMeterView extends LinearLayout implements
         res.getValue(R.dimen.status_bar_icon_scale_factor, typedValue, true);
         float iconScaleFactor = typedValue.getFloat();
 
-        int batteryHeight = res.getDimensionPixelSize(R.dimen.status_bar_battery_icon_height);
+        int batteryHeight = res.getDimensionPixelSize(mS5Battery
+                ? R.dimen.pd1610_s5_battery_icon_height
+                : R.dimen.status_bar_battery_icon_height);
         int batteryWidth = mBatteryStyle == BATTERY_STYLE_CIRCLE ?
                 res.getDimensionPixelSize(R.dimen.status_bar_battery_icon_circle_width) :
-                res.getDimensionPixelSize(R.dimen.status_bar_battery_icon_width);
+                res.getDimensionPixelSize(mS5Battery
+                        ? R.dimen.pd1610_s5_battery_icon_width
+                        : R.dimen.status_bar_battery_icon_width);
         int marginBottom = res.getDimensionPixelSize(R.dimen.battery_margin_bottom);
 
         LinearLayout.LayoutParams scaledLayoutParams = new LinearLayout.LayoutParams(
@@ -564,7 +597,7 @@ public class BatteryMeterView extends LinearLayout implements
     private void updateColors(int foregroundColor, int backgroundColor, int singleToneColor) {
         mCircleDrawable.setColors(foregroundColor, backgroundColor, singleToneColor);
         mThemedDrawable.setColors(foregroundColor, backgroundColor, singleToneColor);
-        if (mUseCustomDrawable) {
+        if (!mS5Battery && mUseCustomDrawable) {
             if (mCustomNormalDrawable[1] == null) {
                 mCustomNormalDrawable[0].setTint(singleToneColor);
             }

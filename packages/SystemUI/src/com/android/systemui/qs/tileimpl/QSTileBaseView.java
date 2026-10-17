@@ -94,6 +94,9 @@ public class QSTileBaseView extends com.android.systemui.plugins.qs.QSTileView {
         d.setTintList(ColorStateList.valueOf(Color.TRANSPARENT));
         int bgSize = context.getResources().getDimensionPixelSize(R.dimen.qs_tile_background_size);
         if (qsStyle == QsStyle.MIUI) bgSize = Math.round(bgSize * 1.15f);
+        // pd1610: 本机 480dp 宽，五列时列宽 96dp；S5 原机圆/列 = 65%，
+        // 照原比例圆要放大到 58dp 才「看起来一样大」
+        if (qsStyle == QsStyle.S5) bgSize = 174;  // 58dp @ xxhdpi(3.0)
         d.setIntrinsicHeight(bgSize);
         d.setIntrinsicWidth(bgSize);
         mBg.setImageDrawable(d);
@@ -130,9 +133,10 @@ public class QSTileBaseView extends com.android.systemui.plugins.qs.QSTileView {
             mColorActive = 0xFF3482FF;
             mColorInactive = 0xFFE9E9E9;
         } else if (qsStyle == QsStyle.S5) {
-            // 4.4.2 原包实测：round_bg_on = #ACEB00，round_bg_normal = #4D000000
-            mColorActive = 0xFFACEB00;
-            mColorInactive = 0x4D000000;
+            // S5 控制中心原图实测：圆底恒为深青 #014753（开/关都一样），
+            // 状态靠图标颜色表达（开=亮绿 #ACEA00，关=灰青 #669198）
+            mColorActive = context.getColor(R.color.pd1610_qs_tile_bg);
+            mColorInactive = context.getColor(R.color.pd1610_qs_tile_bg);
         }
 
         setPadding(0, 0, 0, 0);
@@ -259,6 +263,10 @@ public class QSTileBaseView extends com.android.systemui.plugins.qs.QSTileView {
     }
 
     private int getCircleColor(int state) {
+        // pd1610: TouchWiz/S5 的关态圆底是深青，不是系统灰
+        final boolean tw = QsStyle.get(getContext()) == QsStyle.TOUCHWIZ
+                || QsStyle.get(getContext()) == QsStyle.S5;
+        if (tw && state != Tile.STATE_ACTIVE) return mColorInactive;
         switch (state) {
             case Tile.STATE_ACTIVE:
                 return mColorActive;
