@@ -362,9 +362,17 @@ public class EdgeBackGestureHandler implements DisplayListener, TunerService.Tun
             // Verify if this is in within the touch region and we aren't in immersive mode, and
             // either the bouncer is showing or the notification panel is hidden
             int stateFlags = mOverviewProxyService.getSystemUiStateFlags();
+            boolean backDisabled = QuickStepContract.isBackGestureDisabled(stateFlags);
+            if (backDisabled && com.android.systemui.qs.QsStyle.get(mContext)
+                    == com.android.systemui.qs.QsStyle.S5) {
+                // pd1610: S5 下我们会主动打开「面板已展开」位来压住桌面的 home 手势，
+                // 而用户要求左右返回继续可用 —— 只有这一位在挡时，放行返回。
+                backDisabled = (stateFlags & (QuickStepContract.SYSUI_STATE_NAV_BAR_HIDDEN
+                        | QuickStepContract.SYSUI_STATE_STATUS_BAR_KEYGUARD_SHOWING)) != 0;
+            }
             mIsOnLeftEdge = ev.getX() <= mEdgeWidth + mLeftInset;
             mInRejectedExclusion = false;
-            mAllowGesture = !QuickStepContract.isBackGestureDisabled(stateFlags)
+            mAllowGesture = !backDisabled
                     && isWithinTouchRegion((int) ev.getX(), (int) ev.getY());
             if (mAllowGesture) {
                 mEdgePanelLp.gravity = mIsOnLeftEdge

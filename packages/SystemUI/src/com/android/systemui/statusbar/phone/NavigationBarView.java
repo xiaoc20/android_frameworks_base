@@ -102,8 +102,14 @@ public class NavigationBarView extends FrameLayout implements
 
     /** pd1610: 显示/隐藏全面屏的小白条；GONE 后 home 上滑手势一起失效。 */
     public void setS5HomeHandleVisible(boolean visible) {
+        boolean changed = (!visible) != mS5HideHomeHandle;
         mS5HideHomeHandle = !visible;
         applyS5HomeHandleVisibility();
+        if (changed) {
+            // pd1610: 控制中心开合要把「桌面手势该不该禁用」同步给桌面（QuickStep 只看这两个位）。
+            updateDisabledSystemUiStateFlags();
+            updatePanelSystemUiStateFlags();
+        }
     }
 
     private void applyS5HomeHandleVisibility() {
@@ -810,7 +816,7 @@ public class NavigationBarView extends FrameLayout implements
                 mBlockedGesturalNavigation ||
                 (mDisabledFlags & View.STATUS_BAR_DISABLE_RECENT) != 0, displayId);
         mOverviewProxyService.setSystemUiStateFlag(SYSUI_STATE_HOME_DISABLED,
-                mBlockedGesturalNavigation ||
+                mBlockedGesturalNavigation || mS5HideHomeHandle ||
                 (mDisabledFlags & View.STATUS_BAR_DISABLE_HOME) != 0, displayId);
         mOverviewProxyService.setSystemUiStateFlag(SYSUI_STATE_SEARCH_DISABLED,
                 mBlockedGesturalNavigation ||
@@ -821,7 +827,7 @@ public class NavigationBarView extends FrameLayout implements
         int displayId = mContext.getDisplayId();
         if (mPanelView != null) {
             mOverviewProxyService.setSystemUiStateFlag(SYSUI_STATE_NOTIFICATION_PANEL_EXPANDED,
-                    mBlockedGesturalNavigation ||
+                    mBlockedGesturalNavigation || mS5HideHomeHandle ||
                     (mPanelView.isFullyExpanded() && !mPanelView.isInSettings()), displayId);
             mOverviewProxyService.setSystemUiStateFlag(SYSUI_STATE_QUICK_SETTINGS_EXPANDED,
                     mPanelView.isInSettings(), displayId);

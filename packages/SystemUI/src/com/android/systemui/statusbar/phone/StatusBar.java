@@ -3949,12 +3949,19 @@ public class StatusBar extends SystemUI implements DemoMode,
             return true;
         }
         if (mNotificationPanel.isQsExpanded()) {
-            if (mNotificationPanel.isQsDetailShowing()) {
-                mNotificationPanel.closeQsDetail();
+            if (com.android.systemui.qs.QsStyle.get(mContext)
+                    == com.android.systemui.qs.QsStyle.S5) {
+                // pd1610: S5 控制中心里 QS 是钉死展开的（isQsExpanded() 恒 true），
+                // 原逻辑会在这里「关 QS」然后 return，返回键等于被吃掉。
+                // S5 跳过这一段，往下走真正的「收起控制中心」。
             } else {
-                mNotificationPanel.animateCloseQs(false /* animateAway */);
+                if (mNotificationPanel.isQsDetailShowing()) {
+                    mNotificationPanel.closeQsDetail();
+                } else {
+                    mNotificationPanel.animateCloseQs(false /* animateAway */);
+                }
+                return true;
             }
-            return true;
         }
         if (mState != StatusBarState.KEYGUARD && mState != StatusBarState.SHADE_LOCKED) {
             if (mNotificationPanel.canPanelBeCollapsed()) {

@@ -3060,7 +3060,12 @@ public class NotificationPanelView extends PanelView implements
                 }
                 return true;
             case StatusBarState.SHADE:
-
+                if (com.android.systemui.qs.QsStyle.get(mContext)
+                        == com.android.systemui.qs.QsStyle.S5) {
+                    // pd1610: S5 控制中心 —— 点通知区下方的空白不再收起（用户明确不要这个逻辑）。
+                    // 收起只认两条路：底栏留空区上滑、返回手势。
+                    return true;
+                }
                 // This gets called in the middle of the touch handling, where the state is still
                 // that we are tracking the panel. Collapse the panel after this is done.
                 post(mPostCollapseRunnable);
