@@ -44,6 +44,7 @@ import android.widget.Switch;
 
 import com.android.settingslib.Utils;
 import com.android.systemui.R;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
@@ -65,8 +66,8 @@ public class QSTileBaseView extends com.android.systemui.plugins.qs.QSTileView {
     private boolean mShowRippleEffect = true;
 
     private final ImageView mBg;
-    private final int mColorActive;
-    private final int mColorInactive;
+    private int mColorActive;
+    private int mColorInactive;
     private final int mColorDisabled;
     private int mCircleColor;
     private int mBgSize;
@@ -82,14 +83,17 @@ public class QSTileBaseView extends com.android.systemui.plugins.qs.QSTileView {
         mIconFrame = new FrameLayout(context);
         int size = context.getResources().getDimensionPixelSize(R.dimen.qs_quick_tile_size);
         addView(mIconFrame, new LayoutParams(size, size));
+        // pd1610: 图标底色形状跟 QS 风格走（原生用 config_icon_mask）
+        final int qsStyle = QsStyle.get(context);
         mBg = new ImageView(getContext());
         Path path = new Path(PathParser.createPathFromPathData(
-                context.getResources().getString(ICON_MASK_ID)));
+                QsStyle.getIconMaskPath(context, qsStyle)));
         float pathSize = AdaptiveIconDrawable.MASK_SIZE;
         PathShape p = new PathShape(path, pathSize, pathSize);
         ShapeDrawable d = new ShapeDrawable(p);
         d.setTintList(ColorStateList.valueOf(Color.TRANSPARENT));
         int bgSize = context.getResources().getDimensionPixelSize(R.dimen.qs_tile_background_size);
+        if (qsStyle == QsStyle.MIUI) bgSize = Math.round(bgSize * 1.15f);
         d.setIntrinsicHeight(bgSize);
         d.setIntrinsicWidth(bgSize);
         mBg.setImageDrawable(d);
@@ -115,6 +119,21 @@ public class QSTileBaseView extends com.android.systemui.plugins.qs.QSTileView {
         mColorDisabled = Utils.getDisabled(context,
                 Utils.getColorAttrDefaultColor(context, android.R.attr.textColorTertiary));
         mColorInactive = Utils.getColorAttrDefaultColor(context, android.R.attr.textColorSecondary);
+
+        // pd1610: 风格配色，全部取自 4.3 原包实测值：
+        //   tw_quick_panel_quick_setting_button_bg_normal.9.png = #112631
+        //   tw_quick_panel_dim.9.png 的绿 = #7ED317
+        if (qsStyle == QsStyle.TOUCHWIZ) {
+            mColorActive = 0xFF7ED317;
+            mColorInactive = 0xFF112631;
+        } else if (qsStyle == QsStyle.MIUI) {
+            mColorActive = 0xFF3482FF;
+            mColorInactive = 0xFFE9E9E9;
+        } else if (qsStyle == QsStyle.S5) {
+            // 4.4.2 原包实测：round_bg_on = #ACEB00，round_bg_normal = #4D000000
+            mColorActive = 0xFFACEB00;
+            mColorInactive = 0x4D000000;
+        }
 
         setPadding(0, 0, 0, 0);
         setClipChildren(false);

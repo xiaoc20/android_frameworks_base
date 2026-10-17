@@ -568,10 +568,32 @@ public class Process {
                                            int zygotePolicyFlags,
                                            boolean isTopApp,
                                            @Nullable String[] zygoteArgs) {
+        return start(processClass, niceName, uid, gid, gids,
+                    runtimeFlags, mountExternal, targetSdkVersion, seInfo,
+                    abi, instructionSet, appDataDir, invokeWith, packageName, zygotePolicyFlags, isTopApp, zygoteArgs, false);
+    }
+
+    /** @hide */
+    public static ProcessStartResult start(@NonNull final String processClass,
+                                           @Nullable final String niceName,
+                                           int uid, int gid, @Nullable int[] gids,
+                                           int runtimeFlags,
+                                           int mountExternal,
+                                           int targetSdkVersion,
+                                           @Nullable String seInfo,
+                                           @NonNull String abi,
+                                           @Nullable String instructionSet,
+                                           @Nullable String appDataDir,
+                                           @Nullable String invokeWith,
+                                           @Nullable String packageName,
+                                           int zygotePolicyFlags,
+                                           boolean isTopApp,
+                                           @Nullable String[] zygoteArgs,
+                                           boolean refreshFonts) {
         return ZYGOTE_PROCESS.start(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
                     abi, instructionSet, appDataDir, invokeWith, packageName,
-                    zygotePolicyFlags, isTopApp, zygoteArgs);
+                    zygotePolicyFlags, isTopApp, zygoteArgs, refreshFonts);
     }
 
     /** @hide */
@@ -588,11 +610,31 @@ public class Process {
                                                   @Nullable String invokeWith,
                                                   @Nullable String packageName,
                                                   @Nullable String[] zygoteArgs) {
+        return startWebView(processClass, niceName, uid, gid, gids,
+                    runtimeFlags, mountExternal, targetSdkVersion, seInfo,
+                    abi, instructionSet, appDataDir, invokeWith, packageName, zygoteArgs, false);
+    }
+
+    /** @hide */
+    public static ProcessStartResult startWebView(@NonNull final String processClass,
+                                                  @Nullable final String niceName,
+                                                  int uid, int gid, @Nullable int[] gids,
+                                                  int runtimeFlags,
+                                                  int mountExternal,
+                                                  int targetSdkVersion,
+                                                  @Nullable String seInfo,
+                                                  @NonNull String abi,
+                                                  @Nullable String instructionSet,
+                                                  @Nullable String appDataDir,
+                                                  @Nullable String invokeWith,
+                                                  @Nullable String packageName,
+                                                  @Nullable String[] zygoteArgs,
+                                                  boolean refreshFonts) {
         return WebViewZygote.getProcess().start(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
                     abi, instructionSet, appDataDir, invokeWith, packageName,
                     /*zygotePolicyFlags=*/ ZYGOTE_POLICY_FLAG_EMPTY, /*isTopApp=*/ false,
-                    zygoteArgs);
+                    zygoteArgs, refreshFonts);
     }
 
     /**

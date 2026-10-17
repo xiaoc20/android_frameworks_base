@@ -22,11 +22,15 @@ import static android.content.res.Configuration.ORIENTATION_LANDSCAPE;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Point;
+import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import com.android.systemui.R;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.qs.customize.QSCustomizer;
 
 /**
@@ -51,6 +55,12 @@ public class QSContainerImpl extends FrameLayout {
     private int mSideMargins;
     private boolean mQsDisabled;
 
+    private ImageView mBackgroundImage;
+    private Drawable mStatusBarBackgroundDrawable;
+
+    private boolean mLandscape;
+    private boolean mHeaderImageEnabled;
+
     public QSContainerImpl(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
@@ -67,6 +77,19 @@ public class QSContainerImpl extends FrameLayout {
         mStatusBarBackground = findViewById(R.id.quick_settings_status_bar_background);
         mBackgroundGradient = findViewById(R.id.quick_settings_gradient_view);
         mSideMargins = getResources().getDimensionPixelSize(R.dimen.notification_side_paddings);
+        mBackgroundImage = findViewById(R.id.qs_header_image_view);
+        mBackgroundImage.setClipToOutline(true);
+        mLandscape = getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
+
+        mStatusBarBackgroundDrawable = mStatusBarBackground.getBackground();
+
+        // pd1610: TouchWiz 4.4 是深色面板 + 白色文字（标签在 QSTileView 里处理）
+        if ((QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)) {
+            mBackground.setBackgroundColor(0xFF000000);
+        }
+
+        updateResources();
 
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         setMargins();
@@ -76,6 +99,7 @@ public class QSContainerImpl extends FrameLayout {
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         setBackgroundGradientVisibility(newConfig);
+        mLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE;
         updateResources();
         mSizePoint.set(0, 0); // Will be retrieved on next measure pass.
     }
@@ -142,14 +166,30 @@ public class QSContainerImpl extends FrameLayout {
         mQsDisabled = disabled;
         setBackgroundGradientVisibility(getResources().getConfiguration());
         mBackground.setVisibility(mQsDisabled ? View.GONE : View.VISIBLE);
+        updateHeaderVisibility();
     }
 
     private void updateResources() {
+        mHeaderImageEnabled = mContext.getResources().getBoolean(R.bool.qs_custom_header);
+        int topMargin = mContext.getResources().getDimensionPixelSize(
+                com.android.internal.R.dimen.quick_qs_offset_height) + (mHeaderImageEnabled ?
+                mContext.getResources().getDimensionPixelSize(R.dimen.qs_header_image_offset) : 0);
+
         LayoutParams layoutParams = (LayoutParams) mQSPanel.getLayoutParams();
-        layoutParams.topMargin = mContext.getResources().getDimensionPixelSize(
-                com.android.internal.R.dimen.quick_qs_offset_height);
+        layoutParams.topMargin  = topMargin;
+        mQSPanel.setLayoutParams(layoutParams);
+
+        int statusBarSideMargin = mHeaderImageEnabled ? mContext.getResources().getDimensionPixelSize(
+                R.dimen.qs_header_image_side_margin) : 0;
+
+        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) mStatusBarBackground.getLayoutParams();
+        lp.height = topMargin;
+        lp.setMargins(statusBarSideMargin, 0, statusBarSideMargin, 0);
+        mStatusBarBackground.setLayoutParams(lp);
 
         mQSPanel.setLayoutParams(layoutParams);
+
+        updateHeaderVisibility();
     }
 
     /**
@@ -181,6 +221,12 @@ public class QSContainerImpl extends FrameLayout {
     }
 
     private void setBackgroundGradientVisibility(Configuration newConfig) {
+        if ((QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)) {
+            // TouchWiz 没有渐变层，整块是纯深色
+            mBackgroundGradient.setVisibility(View.INVISIBLE);
+            mStatusBarBackground.setVisibility(View.VISIBLE);
+            return;
+        }
         if (newConfig.orientation == ORIENTATION_LANDSCAPE) {
             mBackgroundGradient.setVisibility(View.INVISIBLE);
             mStatusBarBackground.setVisibility(View.INVISIBLE);
@@ -214,5 +260,20 @@ public class QSContainerImpl extends FrameLayout {
             getDisplay().getRealSize(mSizePoint);
         }
         return mSizePoint.y;
+    }
+
+    private void updateHeaderVisibility() {
+        boolean hideGradient = (QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)
+                || mLandscape || mHeaderImageEnabled || mQsDisabled;
+        boolean hideStatusbar = mLandscape && !mHeaderImageEnabled;
+
+        mBackgroundImage.setVisibility(mHeaderImageEnabled ? View.VISIBLE : View.GONE);
+        mBackgroundGradient.setVisibility(hideGradient ? View.INVISIBLE : View.VISIBLE);
+        if ((QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)) {
+            mStatusBarBackground.setBackgroundColor(0xFF000000);
+        } else {
+            mStatusBarBackground.setBackground(hideGradient ? null : mStatusBarBackgroundDrawable);
+        }
+        mStatusBarBackground.setVisibility(hideStatusbar ? View.INVISIBLE : View.VISIBLE);
     }
 }

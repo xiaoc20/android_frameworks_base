@@ -18,6 +18,7 @@ package com.android.systemui;
 
 import android.app.ActivityThread;
 import android.app.Application;
+import android.database.ContentObserver;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -27,6 +28,7 @@ import android.content.res.Configuration;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
+import android.provider.Settings;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -34,6 +36,7 @@ import android.util.ArraySet;
 import android.util.Log;
 import android.util.TimingsTraceLog;
 
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.plugins.OverlayPlugin;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.shared.plugins.PluginManager;
@@ -83,6 +86,21 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
         // application theme in the manifest does only work for activities. Keep this in sync with
         // the theme set there.
         setTheme(R.style.Theme_SystemUI);
+
+        // pd1610: 控制中心样式（设置 > 状态栏 > 控制中心样式）改了就让 SystemUI
+        // 自我重启，QS 布局按新风格重建。SystemUI 是 persistent app，系统会立刻
+        // 重新拉起，用户只会看到状态栏闪一下。
+        if (Process.myUserHandle().equals(UserHandle.SYSTEM)) {
+            getContentResolver().registerContentObserver(
+                    Settings.System.getUriFor(QsStyle.SETTING_KEY), false,
+                    new ContentObserver(new Handler(Looper.getMainLooper())) {
+                        @Override
+                        public void onChange(boolean selfChange) {
+                            Log.i(TAG, "pd1610 qs style changed, restarting SystemUI");
+                            Process.killProcess(Process.myPid());
+                        }
+                    });
+        }
 
         if (Process.myUserHandle().equals(UserHandle.SYSTEM)) {
             IntentFilter bootCompletedFilter = new IntentFilter(Intent.ACTION_BOOT_COMPLETED);

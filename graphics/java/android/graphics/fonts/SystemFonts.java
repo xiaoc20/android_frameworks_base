@@ -52,7 +52,7 @@ public final class SystemFonts {
     private SystemFonts() {}  // Do not instansiate.
 
     private static final Map<String, FontFamily[]> sSystemFallbackMap;
-    private static final FontConfig.Alias[] sAliases;
+    private static final List<FontConfig.Alias> sAliases;
     private static final List<Font> sAvailableFonts;
 
     /**
@@ -86,7 +86,7 @@ public final class SystemFonts {
      * @hide
      */
     public static @NonNull Map<String, FontFamily[]> getRawSystemFallbackMap() {
-        return sSystemFallbackMap;
+        return Collections.unmodifiableMap(sSystemFallbackMap);
     }
 
     /**
@@ -96,7 +96,7 @@ public final class SystemFonts {
      * @hide
      */
     public static @NonNull FontConfig.Alias[] getAliases() {
-        return sAliases;
+        return sAliases.toArray(new FontConfig.Alias[sAliases.size()]);
     }
 
     private static @Nullable ByteBuffer mmap(@NonNull String fullPath) {
@@ -243,6 +243,19 @@ public final class SystemFonts {
             @NonNull FontCustomizationParser.Result oemCustomization,
             @NonNull ArrayMap<String, FontFamily[]> fallbackMap,
             @NonNull ArrayList<Font> availableFonts) {
+        List<FontConfig.Alias> list = buildSystemFallback(xmlPath, fontDir, oemCustomization, null, fallbackMap, availableFonts);
+        return list.toArray(new FontConfig.Alias[list.size()]);
+    }
+
+    /**
+     * @hide
+     */
+    public static List<FontConfig.Alias> buildSystemFallback(@NonNull String xmlPath,
+            @NonNull String fontDir,
+            @NonNull FontCustomizationParser.Result oemCustomization,
+            @NonNull FontCustomizationParser.Result themeCustomization,
+            @NonNull ArrayMap<String, FontFamily[]> fallbackMap,
+            @NonNull ArrayList<Font> availableFonts) {
         try {
             final FileInputStream fontsIn = new FileInputStream(xmlPath);
             final FontConfig fontConfig = FontListParser.parse(fontsIn, fontDir);
@@ -265,7 +278,34 @@ public final class SystemFonts {
                         bufferCache, fallbackListMap, availableFonts);
             }
 
+            if (themeCustomization != null) {
+                try {
+                    for (int i = 0; i < themeCustomization.mAdditionalNamedFamilies.size(); ++i) {
+                        appendNamedFamily(themeCustomization.mAdditionalNamedFamilies.get(i),
+                                bufferCache, fallbackListMap, availableFonts);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to parse customize fonts family.", e);
+                }
+            }
+
             // Then, add fallback fonts to the each fallback map.
+            if (themeCustomization != null) {
+                try {
+                    for (int i = 0; i < themeCustomization.mAdditionalFallbackFamilies.size(); ++i) {
+                        pushFamilyToFallback(themeCustomization.mAdditionalFallbackFamilies.get(i),
+                            fallbackListMap, bufferCache, availableFonts);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to parse customize fonts fallback.", e);
+                }
+            }
+
+            for (int i = 0; i < oemCustomization.mAdditionalFallbackFamilies.size(); ++i) {
+                pushFamilyToFallback(oemCustomization.mAdditionalFallbackFamilies.get(i),
+                        fallbackListMap, bufferCache, availableFonts);
+            }
+
             for (int i = 0; i < xmlFamilies.length; i++) {
                 final FontConfig.Family xmlFamily = xmlFamilies[i];
                 // The first family (usually the sans-serif family) is always placed immediately
@@ -287,10 +327,13 @@ public final class SystemFonts {
             final ArrayList<FontConfig.Alias> list = new ArrayList<>();
             list.addAll(Arrays.asList(fontConfig.getAliases()));
             list.addAll(oemCustomization.mAdditionalAliases);
-            return list.toArray(new FontConfig.Alias[list.size()]);
+            if (themeCustomization != null) {
+                list.addAll(themeCustomization.mAdditionalAliases);
+            }
+            return list;
         } catch (IOException | XmlPullParserException e) {
             Log.e(TAG, "Failed initialize system fallbacks.", e);
-            return ArrayUtils.emptyArray(FontConfig.Alias.class);
+            return new ArrayList<FontConfig.Alias>();
         }
     }
 
@@ -306,14 +349,31 @@ public final class SystemFonts {
         }
     }
 
-    static {
+    /**
+     * refresh fonts list for theme
+     * @hide
+     */
+    public static void updateFontsList() {
         final ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
         final ArrayList<Font> availableFonts = new ArrayList<>();
         final FontCustomizationParser.Result oemCustomization =
                 readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
-        sAliases = buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/",
-                oemCustomization, systemFallbackMap, availableFonts);
-        sSystemFallbackMap = Collections.unmodifiableMap(systemFallbackMap);
-        sAvailableFonts = Collections.unmodifiableList(availableFonts);
+        final FontCustomizationParser.Result themeCustomization =
+                readFontCustomization("/data/theme/fonts/fonts_customization.xml", "/data/theme/fonts/");
+        sAliases.clear();
+        sSystemFallbackMap.clear();
+        sAvailableFonts.clear();
+
+        sAliases.addAll(buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/",
+                oemCustomization, themeCustomization, systemFallbackMap, availableFonts));
+        sSystemFallbackMap.putAll(systemFallbackMap);
+        sAvailableFonts.addAll(availableFonts);
+    }
+
+    static {
+        sAliases = new ArrayList<FontConfig.Alias>();
+        sSystemFallbackMap = new ArrayMap<String, FontFamily[]>();
+        sAvailableFonts = new ArrayList<Font>();
+        updateFontsList();
     }
 }

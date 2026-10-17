@@ -86,7 +86,11 @@ easier.
 
         <item name="listSeparatorTextViewStyle">@style/Widget.DeviceDefault.TextView.ListSeparator</item>
 
+        <item name="listChoiceIndicatorSingle">@drawable/exthm_btn_radio_dark</item>
+        <item name="listChoiceIndicatorMultiple">@drawable/exthm_btn_check_dark</item>
+
         <!-- Window attributes -->
+        <item name="windowBackground">@drawable/exthm_window_background_dark</item>
         <item name="windowTitleStyle">@style/WindowTitle.DeviceDefault</item>
         <item name="windowTitleBackgroundStyle">@style/WindowTitleBackground.DeviceDefault</item>
         <item name="windowAnimationStyle">@style/Animation.DeviceDefault.Activity</item>
@@ -217,6 +221,10 @@ easier.
         <item name="colorError">@color/error_color_device_default_dark</item>
         <item name="colorBackgroundFloating">@color/background_floating_device_default_dark</item>
         <item name="colorPopupBackground">?attr/colorBackgroundFloating</item>
+
+        <!-- exTHmUI Toast -->
+        <item name="toastFrameBackground">@drawable/exthm_toast_dark</item>
+        <item name="toastTextColor">@color/exthm_color_toast_text_dark</item>
     </style>
 
     <style name="Theme.DeviceDefault" parent="Theme.DeviceDefaultBase" />
@@ -341,6 +349,7 @@ easier.
     <style name="Theme.DeviceDefault.Dialog" parent="Theme.Material.Dialog" >
         <item name="windowTitleStyle">@style/DialogWindowTitle.DeviceDefault</item>
         <item name="windowAnimationStyle">@style/Animation.DeviceDefault.Dialog</item>
+        <item name="windowBackground">@drawable/exthm_dialog_background_dark</item>
 
         <item name="buttonBarStyle">@style/DeviceDefault.ButtonBar.AlertDialog</item>
         <item name="borderlessButtonStyle">@style/Widget.DeviceDefault.Button.Borderless.Small</item>
@@ -818,6 +827,10 @@ easier.
 
         <item name="listSeparatorTextViewStyle">@style/Widget.DeviceDefault.Light.TextView.ListSeparator</item>
 
+        <item name="listChoiceIndicatorSingle">@drawable/exthm_btn_radio_light</item>
+        <item name="listChoiceIndicatorMultiple">@drawable/exthm_btn_check_light</item>
+        <item name="windowBackground">@drawable/exthm_window_background_light</item>
+
         <item name="windowTitleStyle">@style/WindowTitle.DeviceDefault</item>
         <item name="windowTitleBackgroundStyle">@style/WindowTitleBackground.DeviceDefault</item>
         <item name="windowAnimationStyle">@style/Animation.DeviceDefault.Activity</item>
@@ -945,6 +958,10 @@ easier.
         <item name="colorError">@color/error_color_device_default_light</item>
         <item name="colorBackgroundFloating">@color/background_floating_device_default_light</item>
         <item name="colorPopupBackground">?attr/colorBackgroundFloating</item>
+
+        <!-- exTHmUI Toast -->
+        <item name="toastFrameBackground">@drawable/exthm_toast_light</item>
+        <item name="toastTextColor">@color/exthm_color_toast_text_light</item>
     </style>
 
     <!-- Variant of the DeviceDefault (light) theme that has a solid (opaque) action bar with an
@@ -1095,6 +1112,7 @@ easier.
     <style name="Theme.DeviceDefault.Light.Dialog" parent="Theme.Material.Light.Dialog">
         <item name="windowTitleStyle">@style/DialogWindowTitle.DeviceDefault.Light</item>
         <item name="windowAnimationStyle">@style/Animation.DeviceDefault.Dialog</item>
+        <item name="windowBackground">@drawable/exthm_dialog_background_light</item>
 
         <!-- Dialog attributes -->
         <item name="dialogCornerRadius">@dimen/config_dialogCornerRadius</item>

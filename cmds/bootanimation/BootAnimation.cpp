@@ -69,6 +69,8 @@ static const char OEM_BOOTANIMATION_FILE[] = "/oem/media/bootanimation.zip";
 static const char PRODUCT_BOOTANIMATION_DARK_FILE[] = "/product/media/bootanimation-dark.zip";
 static const char PRODUCT_BOOTANIMATION_FILE[] = "/product/media/bootanimation.zip";
 static const char SYSTEM_BOOTANIMATION_FILE[] = "/system/media/bootanimation.zip";
+static const char THEME_BOOTANIMATION_FILE[] = "/data/theme/media/bootanimation.zip";
+static const char THEME_BOOTANIMATION_DARK_FILE[] = "/data/theme/media/bootanimation-dark.zip";
 static const char APEX_BOOTANIMATION_FILE[] = "/apex/com.android.bootanimation/etc/bootanimation.zip";
 static const char PRODUCT_ENCRYPTED_BOOTANIMATION_FILE[] = "/product/media/bootanimation-encrypted.zip";
 static const char SYSTEM_ENCRYPTED_BOOTANIMATION_FILE[] = "/system/media/bootanimation-encrypted.zip";
@@ -371,17 +373,29 @@ void BootAnimation::findBootAnimationFile() {
         }
     }
 
-    const bool playDarkAnim = android::base::GetIntProperty("ro.boot.theme", 0) == 1;
+    int bootTheme = android::base::GetIntProperty("ro.boot.theme", 0);
+    int persistTheme = android::base::GetIntProperty("persist.sys.theme", 0);
+    const bool playDarkAnim = (bootTheme == 1) || (persistTheme == 2);
     static const char* bootFiles[] =
-        {APEX_BOOTANIMATION_FILE, playDarkAnim ? PRODUCT_BOOTANIMATION_DARK_FILE : PRODUCT_BOOTANIMATION_FILE,
+        {playDarkAnim ? THEME_BOOTANIMATION_DARK_FILE : THEME_BOOTANIMATION_FILE, APEX_BOOTANIMATION_FILE,
+         playDarkAnim ? PRODUCT_BOOTANIMATION_DARK_FILE : PRODUCT_BOOTANIMATION_FILE,
          OEM_BOOTANIMATION_FILE, SYSTEM_BOOTANIMATION_FILE};
     static const char* shutdownFiles[] =
         {PRODUCT_SHUTDOWNANIMATION_FILE, OEM_SHUTDOWNANIMATION_FILE, SYSTEM_SHUTDOWNANIMATION_FILE, ""};
 
-    for (const char* f : (!mShuttingDown ? bootFiles : shutdownFiles)) {
-        if (access(f, R_OK) == 0) {
-            mZipFileName = f;
-            return;
+    if (!mShuttingDown) {
+        for (const char* f : bootFiles) {
+            if (access(f, R_OK) == 0) {
+                mZipFileName = f;
+                return;
+            }
+        }
+    } else {
+        for (const char* f : shutdownFiles) {
+            if (access(f, R_OK) == 0) {
+                mZipFileName = f;
+                return;
+            }
         }
     }
 }

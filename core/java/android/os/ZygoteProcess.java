@@ -345,6 +345,27 @@ public class ZygoteProcess {
                                                   int zygotePolicyFlags,
                                                   boolean isTopApp,
                                                   @Nullable String[] zygoteArgs) {
+        return start(processClass, niceName, uid, gid, gids, runtimeFlags, mountExternal, targetSdkVersion, seInfo, abi, instructionSet, appDataDir, invokeWith, packageName, zygotePolicyFlags, isTopApp, zygoteArgs, false);
+    }
+
+    /*
+     * @hide
+     */
+    public final Process.ProcessStartResult start(@NonNull final String processClass,
+                                                  final String niceName,
+                                                  int uid, int gid, @Nullable int[] gids,
+                                                  int runtimeFlags, int mountExternal,
+                                                  int targetSdkVersion,
+                                                  @Nullable String seInfo,
+                                                  @NonNull String abi,
+                                                  @Nullable String instructionSet,
+                                                  @Nullable String appDataDir,
+                                                  @Nullable String invokeWith,
+                                                  @Nullable String packageName,
+                                                  int zygotePolicyFlags,
+                                                  boolean isTopApp,
+                                                  @Nullable String[] zygoteArgs,
+                                                  boolean refreshFonts) {
         // TODO (chriswailes): Is there a better place to check this value?
         if (fetchUsapPoolEnabledPropWithMinInterval()) {
             informZygotesOfUsapPoolStatus();
@@ -354,7 +375,7 @@ public class ZygoteProcess {
             return startViaZygote(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
                     abi, instructionSet, appDataDir, invokeWith, /*startChildZygote=*/ false,
-                    packageName, zygotePolicyFlags, isTopApp, zygoteArgs);
+                    packageName, zygotePolicyFlags, isTopApp, zygoteArgs, refreshFonts);
         } catch (ZygoteStartFailedEx ex) {
             Log.e(LOG_TAG,
                     "Starting VM process through Zygote failed");
@@ -615,7 +636,8 @@ public class ZygoteProcess {
                                                       @Nullable String packageName,
                                                       int zygotePolicyFlags,
                                                       boolean isTopApp,
-                                                      @Nullable String[] extraArgs)
+                                                      @Nullable String[] extraArgs,
+                                                      boolean refreshFonts)
                                                       throws ZygoteStartFailedEx {
         ArrayList<String> argsForZygote = new ArrayList<>();
 
@@ -686,6 +708,9 @@ public class ZygoteProcess {
             argsForZygote.add("--package-name=" + packageName);
         }
 
+        if (refreshFonts) {
+            argsForZygote.add("--refresh-fonts");
+        }
         if (isTopApp) {
             argsForZygote.add(Zygote.START_AS_TOP_APP_ARG);
         }
@@ -1208,6 +1233,21 @@ public class ZygoteProcess {
                                                String instructionSet,
                                                int uidRangeStart,
                                                int uidRangeEnd) {
+        return startChildZygote(processClass, niceName, uid, gid, gids, runtimeFlags, seInfo, abi, acceptedAbiList, instructionSet, uidRangeStart, uidRangeEnd, false);
+    }
+
+    /** @hide */
+    public ChildZygoteProcess startChildZygote(final String processClass,
+                                               final String niceName,
+                                               int uid, int gid, int[] gids,
+                                               int runtimeFlags,
+                                               String seInfo,
+                                               String abi,
+                                               String acceptedAbiList,
+                                               String instructionSet,
+                                               int uidRangeStart,
+                                               int uidRangeEnd,
+                                               boolean refreshFonts) {
         // Create an unguessable address in the global abstract namespace.
         final LocalSocketAddress serverAddress = new LocalSocketAddress(
                 processClass + "/" + UUID.randomUUID().toString());
@@ -1224,7 +1264,7 @@ public class ZygoteProcess {
                     abi, instructionSet, null /* appDataDir */, null /* invokeWith */,
                     true /* startChildZygote */, null /* packageName */,
                     ZYGOTE_POLICY_FLAG_SYSTEM_PROCESS /* zygotePolicyFlags */, false /* isTopApp */,
-                    extraArgs);
+                    extraArgs, refreshFonts);
         } catch (ZygoteStartFailedEx ex) {
             throw new RuntimeException("Starting child-zygote through Zygote failed", ex);
         }

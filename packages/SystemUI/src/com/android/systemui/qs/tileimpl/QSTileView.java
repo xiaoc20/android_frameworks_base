@@ -29,6 +29,7 @@ import android.widget.TextView;
 import com.android.settingslib.Utils;
 import com.android.systemui.FontSizeUtils;
 import com.android.systemui.R;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 
@@ -69,6 +70,12 @@ public class QSTileView extends QSTileBaseView {
         // contrast purposes
         mColorLabelUnavailable = Utils.getColorAttr(getContext(),
                 android.R.attr.textColorSecondary);
+        // pd1610: TouchWiz 是深色面板，标签强制白色
+        final int qsStyle = QsStyle.get(getContext());
+        if (qsStyle == QsStyle.TOUCHWIZ || qsStyle == QsStyle.S5) {
+            mColorLabelDefault = ColorStateList.valueOf(0xFFFFFFFF);
+            mColorLabelUnavailable = ColorStateList.valueOf(0xFF9E9E9E);
+        }
     }
 
     TextView getLabel() {

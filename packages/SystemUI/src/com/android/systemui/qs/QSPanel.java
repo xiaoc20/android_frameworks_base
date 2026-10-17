@@ -42,6 +42,7 @@ import com.android.systemui.Dependency;
 import com.android.systemui.DumpController;
 import com.android.systemui.Dumpable;
 import com.android.systemui.R;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.plugins.qs.DetailAdapter;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTileView;
@@ -150,6 +151,12 @@ public class QSPanel extends LinearLayout implements Tunable, Callback, Brightne
 
         mIsAutomaticBrightnessAvailable = getResources().getBoolean(
                 com.android.internal.R.bool.config_automatic_brightness_available);
+
+        // pd1610: MIUI 风格的亮度条在磁贴下面。原生 / TouchWiz 保持在顶部。
+        if (QsStyle.get(getContext()) == QsStyle.MIUI) {
+            removeView(mBrightnessView);
+            addView(mBrightnessView);
+        }
     }
 
     protected void addDivider() {

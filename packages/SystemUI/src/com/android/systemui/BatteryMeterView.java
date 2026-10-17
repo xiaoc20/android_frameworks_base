@@ -33,6 +33,7 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.database.ContentObserver;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Handler;
 import android.provider.Settings;
@@ -63,6 +64,7 @@ import com.android.systemui.statusbar.policy.ConfigurationController;
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
+import com.android.systemui.util.DarkIconUtil;
 import com.android.systemui.util.Utils.DisableStateTracker;
 
 import lineageos.providers.LineageSettings;
@@ -92,6 +94,13 @@ public class BatteryMeterView extends LinearLayout implements
 
     private final CircleBatteryDrawable mCircleDrawable;
     private final ThemedBatteryDrawable mThemedDrawable;
+    /* exTHmUI theme */
+    private boolean mUseCustomDrawable;
+    private boolean mIsDark = false;
+    private final Drawable[] mCustomNormalDrawable = new Drawable[2];
+    private final Drawable[] mCustomChargingDrawable = new Drawable[2];
+    private final Drawable[] mCustomPowersaveDrawable = new Drawable[2];
+
     private final String mSlotBattery;
     private final ImageView mBatteryIconView;
     private final CurrentUserTracker mUserTracker;
@@ -146,6 +155,21 @@ public class BatteryMeterView extends LinearLayout implements
         mThemedDrawable = new ThemedBatteryDrawable(context, frameColor);
         atts.recycle();
 
+        mUseCustomDrawable = context.getResources().getBoolean(R.bool.exthm_use_custom_battery);
+        if (mUseCustomDrawable) {
+            try {
+                mCustomNormalDrawable[0] = context.getResources().getDrawable(R.drawable.exthm_stat_sys_battery_normal);
+                mCustomNormalDrawable[1] = DarkIconUtil.getCustomDarkDrawable(context, R.drawable.exthm_stat_sys_battery_normal);
+                mCustomChargingDrawable[0] = context.getResources().getDrawable(R.drawable.exthm_stat_sys_battery_charging);
+                mCustomChargingDrawable[1] = DarkIconUtil.getCustomDarkDrawable(context, R.drawable.exthm_stat_sys_battery_charging);
+                mCustomPowersaveDrawable[0] = context.getResources().getDrawable(R.drawable.exthm_stat_sys_battery_powersave);
+                mCustomPowersaveDrawable[1] = DarkIconUtil.getCustomDarkDrawable(context, R.drawable.exthm_stat_sys_battery_powersave);
+            } catch (Exception e) {
+                e.printStackTrace();
+                mUseCustomDrawable = false;
+            }
+        }
+
         mSettingObserver = new SettingObserver(new Handler(context.getMainLooper()));
 
         addOnAttachStateChangeListener(
@@ -156,7 +180,11 @@ public class BatteryMeterView extends LinearLayout implements
         mSlotBattery = context.getString(
                 com.android.internal.R.string.status_bar_battery);
         mBatteryIconView = new ImageView(context);
-        mBatteryIconView.setImageDrawable(mThemedDrawable);
+        if (mUseCustomDrawable) {
+            mBatteryIconView.setImageDrawable(mCustomNormalDrawable[0]);
+        } else {
+            mBatteryIconView.setImageDrawable(mThemedDrawable);
+        }
         final MarginLayoutParams mlp = new MarginLayoutParams(
                 getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_width),
                 getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_height));
@@ -341,6 +369,9 @@ public class BatteryMeterView extends LinearLayout implements
         mThemedDrawable.setBatteryLevel(level);
         mCharging = pluggedIn;
         mLevel = level;
+        if (mUseCustomDrawable) {
+            updateCustomizeBatteryView();
+        }
         updatePercentText();
         if (pluggedIn) {
             updateShowPercent();
@@ -351,6 +382,20 @@ public class BatteryMeterView extends LinearLayout implements
     public void onPowerSaveChanged(boolean isPowerSave) {
         mCircleDrawable.setPowerSaveEnabled(isPowerSave);
         mThemedDrawable.setPowerSaveEnabled(isPowerSave);
+        if (mUseCustomDrawable) {
+            updateCustomizeBatteryView();
+        }
+    }
+
+    private void updateCustomizeBatteryView() {
+        if (mCharging) {
+            mBatteryIconView.setImageDrawable(mIsDark && mCustomChargingDrawable[1] != null ? mCustomChargingDrawable[1] : mCustomChargingDrawable[0]);
+        } else if (mThemedDrawable != null && mThemedDrawable.getPowerSaveEnabled()) {
+            mBatteryIconView.setImageDrawable(mIsDark && mCustomPowersaveDrawable[1] != null ? mCustomPowersaveDrawable[1] : mCustomPowersaveDrawable[0]);
+        } else {
+            mBatteryIconView.setImageDrawable(mIsDark && mCustomNormalDrawable[1] != null ? mCustomNormalDrawable[1] : mCustomNormalDrawable[0]);
+        }
+        mBatteryIconView.setImageLevel(mLevel);
     }
 
     private TextView loadPercentView() {
@@ -476,7 +521,11 @@ public class BatteryMeterView extends LinearLayout implements
     private void updateBatteryStyle() {
         switch (mBatteryStyle) {
             case BATTERY_STYLE_PORTRAIT:
-                mBatteryIconView.setImageDrawable(mThemedDrawable);
+                if (mUseCustomDrawable) {
+                    updateCustomizeBatteryView();
+                } else {
+                    mBatteryIconView.setImageDrawable(mThemedDrawable);
+                }
                 mBatteryIconView.setVisibility(View.VISIBLE);
                 scaleBatteryMeterViews();
                 break;
@@ -500,15 +549,32 @@ public class BatteryMeterView extends LinearLayout implements
         mNonAdaptedForegroundColor = mDualToneHandler.getFillColor(intensity);
         mNonAdaptedBackgroundColor = mDualToneHandler.getBackgroundColor(intensity);
 
+        mIsDark = darkIntensity >= 0.5f;
+
         if (!mUseWallpaperTextColors) {
             updateColors(mNonAdaptedForegroundColor, mNonAdaptedBackgroundColor,
                     mNonAdaptedSingleToneColor);
+        }
+
+        if (mUseCustomDrawable) {
+            updateCustomizeBatteryView();
         }
     }
 
     private void updateColors(int foregroundColor, int backgroundColor, int singleToneColor) {
         mCircleDrawable.setColors(foregroundColor, backgroundColor, singleToneColor);
         mThemedDrawable.setColors(foregroundColor, backgroundColor, singleToneColor);
+        if (mUseCustomDrawable) {
+            if (mCustomNormalDrawable[1] == null) {
+                mCustomNormalDrawable[0].setTint(singleToneColor);
+            }
+            if (mCustomChargingDrawable[1] == null) {
+                mCustomChargingDrawable[0].setTint(singleToneColor);
+            }
+            if (mCustomPowersaveDrawable[1] == null) {
+                mCustomPowersaveDrawable[0].setTint(singleToneColor);
+            }
+        }
         mTextColor = singleToneColor;
         if (mBatteryPercentView != null) {
             mBatteryPercentView.setTextColor(singleToneColor);

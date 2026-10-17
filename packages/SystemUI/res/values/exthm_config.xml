@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- exTHmUI theme: 需要 _dark 变体的图标名单，由主题 overlay 填 -->
+    <string-array name="custom_dark_icons">
+    </string-array>
+
+    <!-- QS 顶部自定义背景图（主题 overlay 里 qs_header_image.png 提供） -->
+    <bool name="qs_custom_header">false</bool>
+</resources>
