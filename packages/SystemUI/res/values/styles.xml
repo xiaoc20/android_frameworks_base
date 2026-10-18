@@ -69,13 +69,16 @@
         <item name="android:paddingEnd">12dp</item>
     </style>
 
+    <!-- pd1610 v62: 这两个 style 锁屏 / 悬浮通知也在用，必须保持 Material 原生色。
+         DeviceDefault 版被 framework-res 改成 S5 深色配色（标题 #ffeeeeee / 正文 #82afd0）
+         ⇒ 锁屏白卡上标题白字看不见。下拉里的配色由 PdS5NotifStyle 运行期刷，不靠这里。 -->
     <style name="hybrid_notification_title">
         <item name="android:paddingEnd">4dp</item>
-        <item name="android:textAppearance">@*android:style/TextAppearance.DeviceDefault.Notification.Title</item>
+        <item name="android:textAppearance">@*android:style/TextAppearance.Material.Notification.Title</item>
     </style>
 
     <style name="hybrid_notification_text"
-           parent="@*android:style/Widget.DeviceDefault.Notification.Text">
+           parent="@*android:style/Widget.Material.Notification.Text">
         <item name="android:paddingEnd">4dp</item>
     </style>
 

@@ -1925,11 +1925,24 @@ public class NotificationPanelView extends PanelView implements
         for (int i = 0; i < mNotificationStackScroller.getChildCount(); i++) {
             View child = mNotificationStackScroller.getChildAt(i);
             if (child instanceof ExpandableNotificationRow) {
-                ExpandableNotificationRow row = (ExpandableNotificationRow) child;
-                com.android.systemui.statusbar.notification.row.PdS5NotifStyle
-                        .apply(row.getPrivateLayout());
-                com.android.systemui.statusbar.notification.row.PdS5NotifStyle
-                        .apply(row.getPublicLayout());
+                restyleS5Row((ExpandableNotificationRow) child);
+            }
+        }
+    }
+
+    /** pd1610 v56: 分组里的子行不在 NSL 的直接子视图里，必须跟着父行走一遍。 */
+    private void restyleS5Row(ExpandableNotificationRow row) {
+        com.android.systemui.statusbar.notification.row.PdS5NotifStyle
+                .apply(row.getPrivateLayout());
+        com.android.systemui.statusbar.notification.row.PdS5NotifStyle
+                .apply(row.getPublicLayout());
+        // pd1610 v53: 分组头不在 content view 里，单独处理
+        com.android.systemui.statusbar.notification.row.PdS5NotifStyle
+                .applyHeader(row.getGroupHeaderView());
+        final java.util.List<ExpandableNotificationRow> kids = row.getNotificationChildren();
+        if (kids != null) {
+            for (int j = 0; j < kids.size(); j++) {
+                restyleS5Row(kids.get(j));
             }
         }
     }

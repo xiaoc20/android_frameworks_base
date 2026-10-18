@@ -55,17 +55,66 @@ public final class PdS5NotifStyle {
             return;
         }
         final Context context = root.getContext();
+        // 先把上一次套的样式全部还原，再决定这次要不要套
+        // pd1610 v61: restore 必须排在 QsStyle 闸门【之前】—— 否则从 S5 切回原生时
+        // 这里直接 return，之前刷的颜色就永远留着了（实测切 qs=1 后锁屏仍是 S5 配色）。
+        restore(root);
         if (QsStyle.get(context) != QsStyle.S5) {
             return;
         }
-        // 先把上一次套的样式全部还原，再决定这次要不要套
-        restore(root);
         if (!isShade()) {
             // 锁屏 / 锁屏下拉：保持原生
             return;
         }
         recolor(root);
-        compact(root);
+        // pd1610 v58: 分组子行不做 compact —— 见 isChildRow() 的注释
+        if (!isChildRow(root)) {
+            compact(root);
+        }
+    }
+
+    /**
+     * pd1610 v58: 这一坨视图是不是「分组里的子行」的内容。
+     *
+     * 子行不能 compact：AOSP 的 NotificationHeaderUtil 处处假定行头里还有
+     * R.id.icon / R.id.time（sanitizeHeader() 里直接 `time.setVisibility(...)`、
+     * mGreyApplicator 里 `icon.getDrawable().mutate()`）。compact 会把这两个
+     * 从行头搬进标题行，于是分组里【增删一条通知】就会 NPE 打死整个 SystemUI
+     * （实测两次：NotificationHeaderUtil.java:79 与 :218）。
+     * 子行只靠 recolor 就够看清了，行高保持原生。
+     */
+    private static boolean isChildRow(View v) {
+        View p = v;
+        while (p != null) {
+            if (p instanceof ExpandableNotificationRow) {
+                return ((ExpandableNotificationRow) p).isChildInGroup();
+            }
+            final android.view.ViewParent parent = p.getParent();
+            p = parent instanceof View ? (View) parent : null;
+        }
+        return false;
+    }
+
+    /**
+     * pd1610 v53: 分组头（「应用名 + 展开箭头」那一条）是
+     * NotificationChildrenContainer 自己 RemoteViews.apply 到容器上的，
+     * 不在通知的 content view 里 ⇒ apply() 永远走不到它，一直是原生黑字，
+     * 在深色控制中心上几乎看不见。
+     * 这里只刷色，不做 compact（S5 的分组头本来就是这样一条）。
+     */
+    public static void applyHeader(View header) {
+        if (header == null || header.getContext() == null) {
+            return;
+        }
+        // pd1610 v61: 同 apply() —— 必须先还原，再判风格
+        restore(header);
+        if (QsStyle.get(header.getContext()) != QsStyle.S5) {
+            return;
+        }
+        if (!isShade()) {
+            return;
+        }
+        recolor(header);
     }
 
     private static boolean isShade() {
@@ -168,8 +217,13 @@ public final class PdS5NotifStyle {
             if (id == com.android.internal.R.id.title) {
                 color = C_TITLE;
                 bold = true;
+            } else if (id == com.android.systemui.R.id.notification_title) {
+                // pd1610 v63: 折叠分组 / 悬浮通知的单行视图（HybridNotificationView）
+                color = C_TITLE;
+                bold = true;
             } else if (id == com.android.internal.R.id.text
-                    || id == com.android.internal.R.id.text_line_1) {
+                    || id == com.android.internal.R.id.text_line_1
+                    || id == com.android.systemui.R.id.notification_text) {
                 color = C_BODY;
             } else if (id == com.android.internal.R.id.info
                     || id == com.android.internal.R.id.time

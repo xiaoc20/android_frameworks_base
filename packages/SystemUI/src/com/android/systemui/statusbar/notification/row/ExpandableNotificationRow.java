@@ -792,8 +792,13 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             mChildrenContainerStub.inflate();
         }
         mChildrenContainer.addNotification(row, childIndex);
-        onChildrenCountChanged();
+        // pd1610 v59: 必须先标「我是子行」并把 S5 紧凑撤掉，再 onChildrenCountChanged()。
+        // 否则里面的 NotificationHeaderUtil 会去 header 里找 R.id.icon / R.id.time，
+        // 而 S5 紧凑行早就把它们搬进标题行了 ⇒ NPE 打死整个 SystemUI。
         row.setIsChildInGroup(true, this);
+        PdS5NotifStyle.apply(row.getPrivateLayout());
+        PdS5NotifStyle.apply(row.getPublicLayout());
+        onChildrenCountChanged();
     }
 
     public void removeChildNotification(ExpandableNotificationRow row) {
@@ -884,6 +889,11 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
 
     public List<ExpandableNotificationRow> getNotificationChildren() {
         return mChildrenContainer == null ? null : mChildrenContainer.getNotificationChildren();
+    }
+
+    /** pd1610 v53: S5 分组头（不在 content view 里，见 PdS5NotifStyle.applyHeader）。 */
+    public View getGroupHeaderView() {
+        return mChildrenContainer == null ? null : mChildrenContainer.getVisibleHeader();
     }
 
     public int getNumberOfNotificationChildren() {

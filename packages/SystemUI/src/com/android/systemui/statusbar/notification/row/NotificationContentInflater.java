@@ -503,6 +503,9 @@ public class NotificationContentInflater {
                             result.packageContext,
                             parentLayout,
                             remoteViewClickHandler);
+                    // pd1610 v54: S5 —— 同步路径不经过下面的 OnViewAppliedListener，
+                    // 这里必须自己刷一遍（分组子项就走这条路，否则展开后是黑字）。
+                    PdS5NotifStyle.apply(v);
                     v.setIsRootNamespace(true);
                     applyCallback.setResultView(v);
                 } else {
@@ -510,6 +513,7 @@ public class NotificationContentInflater {
                             result.packageContext,
                             existingView,
                             remoteViewClickHandler);
+                    PdS5NotifStyle.apply(existingView);
                     existingWrapper.onReinflated();
                 }
             } catch (Exception e) {

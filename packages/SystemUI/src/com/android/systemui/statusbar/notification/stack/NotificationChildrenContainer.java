@@ -36,6 +36,7 @@ import com.android.systemui.statusbar.CrossFadeHelper;
 import com.android.systemui.statusbar.NotificationHeaderUtil;
 import com.android.systemui.statusbar.notification.NotificationUtils;
 import com.android.systemui.statusbar.notification.VisualStabilityManager;
+import com.android.systemui.statusbar.notification.row.PdS5NotifStyle;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.row.HybridGroupManager;
 import com.android.systemui.statusbar.notification.row.HybridNotificationView;
@@ -317,6 +318,8 @@ public class NotificationChildrenContainer extends ViewGroup {
             header.reapply(getContext(), mNotificationHeader);
         }
         mNotificationHeaderWrapper.onContentUpdated(mContainingNotification);
+        // pd1610 v53: 深色控制中心下这条原生黑字看不见
+        PdS5NotifStyle.applyHeader(mNotificationHeader);
         recreateLowPriorityHeader(builder);
         updateHeaderVisibility(false /* animate */);
         updateChildrenHeaderAppearance();
@@ -350,6 +353,7 @@ public class NotificationChildrenContainer extends ViewGroup {
             } else {
                 header.reapply(getContext(), mNotificationHeaderLowPriority);
             }
+            PdS5NotifStyle.applyHeader(mNotificationHeaderLowPriority);
             mNotificationHeaderWrapperLowPriority.onContentUpdated(mContainingNotification);
             resetHeaderVisibilityIfNeeded(mNotificationHeaderLowPriority, calculateDesiredHeader());
         } else {
