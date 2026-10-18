@@ -5274,6 +5274,61 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
         mQsExpansionFraction = qsExpansionFraction;
     }
 
+    /**
+     * pd1610: S5 —— 「浏览过的通知自动折叠」。
+     * 展开状态（用户手动展开／系统展开的 BigText 等）的通知一旦整个滚出可视区上沿，
+     * 停手 400 ms 后折回单行；
+     * 停手期间不再展开（要再看得点一下）。只动 user-expanded，不碰系统展开（媒体等）。
+     */
+    private final Runnable mS5CollapseBrowsedRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (com.android.systemui.qs.QsStyle.get(getContext())
+                    != com.android.systemui.qs.QsStyle.S5) {
+                return;
+            }
+            if (onKeyguard()) {
+                return;
+            }
+            if (!mScroller.isFinished()) {
+                // 还在惯性滑行，稍后再看
+                postDelayed(mS5CollapseBrowsedRunnable, 200);
+                return;
+            }
+            // 注意：NSL 里子行是 setTranslationY 定位的，getTop()/getBottom() 恒为
+            // 0 与自身高度，判「是否滚出上沿」只能看 translationY + actualHeight。
+            final float visibleTop = mTopPadding;
+            final int n = getChildCount();
+            for (int i = 0; i < n; i++) {
+                final View child = getChildAt(i);
+                if (!(child instanceof ExpandableNotificationRow)) {
+                    continue;
+                }
+                if (child.getVisibility() != View.VISIBLE) {
+                    continue;
+                }
+                final ExpandableNotificationRow row = (ExpandableNotificationRow) child;
+                if (!row.isExpanded()) {
+                    continue;
+                }
+                final float y = child.getTranslationY();
+                final float bottom = y + row.getActualHeight();
+                if (bottom > visibleTop) {
+                    continue;   // 还在可视区里
+                }
+                Log.d("PDS5", "collapse browsed #" + i + " y=" + y + " h=" + row.getActualHeight()
+                        + " bottom=" + bottom + " visibleTop=" + visibleTop
+                        + " user=" + row.isUserExpanded() + " sys=" + row.isSystemExpanded());
+                if (row.isUserExpanded()) {
+                    row.setUserExpanded(false);
+                }
+                if (row.isSystemExpanded()) {
+                    row.setSystemExpanded(false);
+                }
+            }
+        }
+    };
+
     @ShadeViewRefactor(RefactorComponent.COORDINATOR)
     private void setOwnScrollY(int ownScrollY) {
         assert !ANCHOR_SCROLLING;
@@ -5282,6 +5337,12 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
             onScrollChanged(mScrollX, ownScrollY, mScrollX, mOwnScrollY);
             mOwnScrollY = ownScrollY;
             updateOnScrollChange();
+            // pd1610: S5 —— 停手 400 ms 后折叠「已浏览过」的展开通知
+            if (com.android.systemui.qs.QsStyle.get(getContext())
+                    == com.android.systemui.qs.QsStyle.S5) {
+                removeCallbacks(mS5CollapseBrowsedRunnable);
+                postDelayed(mS5CollapseBrowsedRunnable, 400);
+            }
         }
     }
 
