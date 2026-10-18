@@ -117,8 +117,11 @@ public final class PdS5NotifStyle {
 
     private static boolean isShade() {
         try {
-            return Dependency.get(StatusBarStateController.class).getState()
-                    == StatusBarState.SHADE;
+            // pd1610 v65: 锁屏下拉是 SHADE_LOCKED，不是 SHADE。原来只认 SHADE
+            // ⇒ 锁屏下拉时走 restore 留原生黑字，而面板底是 S5 的 #001c27
+            // ⇒ 黑字压深底（用户 2026-10-18 报的 bug）。SHADE_LOCKED 同样是「控制中心」。
+            final int state = Dependency.get(StatusBarStateController.class).getState();
+            return state == StatusBarState.SHADE || state == StatusBarState.SHADE_LOCKED;
         } catch (Throwable t) {
             return true;
         }

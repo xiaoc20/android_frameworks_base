@@ -1878,7 +1878,10 @@ public class NotificationPanelView extends PanelView implements
             final boolean kg = mBarState == StatusBarState.KEYGUARD;
             // 3) 通知行样式：锁屏要原生，解锁后的控制中心才是 S5 深色紧凑行。
             //    行是 inflate 时套上的，状态切换没人重刷 ⇒ 这里自己收/放一遍。
-            final boolean styled = mBarState == StatusBarState.SHADE;
+            // pd1610 v65: 锁屏下拉（SHADE_LOCKED）也是控制中心 —— 底画的是 #001c27，
+            // 行样式必须一起套 S5，否则就是黑字压深底。
+            final boolean styled = mBarState == StatusBarState.SHADE
+                    || mBarState == StatusBarState.SHADE_LOCKED;
             if (styled != mS5LastStyled) {
                 mS5LastStyled = styled;
                 restyleS5NotificationRows();
