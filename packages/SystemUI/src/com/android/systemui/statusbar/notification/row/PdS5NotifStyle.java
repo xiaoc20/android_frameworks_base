@@ -91,6 +91,25 @@ public final class PdS5NotifStyle {
         return v instanceof TextView && ((TextView) v).getText().length() > 0;
     }
 
+    /** 子树里还有没有「看得见、带字」的 TextView。 */
+    private static boolean hasTextDeep(View v) {
+        if (v.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+        if (hasText(v)) {
+            return true;
+        }
+        if (v instanceof ViewGroup) {
+            final ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                if (hasTextDeep(g.getChildAt(i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // ---------------------------------------------------------------- 还原
 
     private static void restore(View v) {
@@ -234,13 +253,22 @@ public final class PdS5NotifStyle {
         final View mainColumn =
                 scope.findViewById(com.android.internal.R.id.notification_main_column);
 
+        // pd1610 v52: 会话(MessagingStyle)/媒体等非标准模板里没有 R.id.title / R.id.text
+        // 这两个坑位，之前会一路走到下面「正文列整列 GONE」的分支 ⇒ 整条通知内容被藏掉
+        // （实测会话通知只剩一行应用名、行高 264）。标准模板才有这两个坑位，别的一律不碰。
+        if (title == null || text == null) {
+            return;
+        }
+
         final boolean hasTitle = hasText(title);
         final boolean hasBody = hasText(text);
 
         if (!hasTitle && !hasBody) {
             // 只有应用名/正文挤在 header 一行的通知（「正在通过 USB 为此设备充电」之类）：
             // 正文列完全空着，却还占 46dp+20dp 的留白 ⇒ 整列收掉，只留 header 一行。
-            if (mainColumn != null && mainColumn.getVisibility() != View.GONE) {
+            // v52: 再加一道保险 —— 正文列里只要还有带字的 TextView 就不收。
+            if (mainColumn != null && mainColumn.getVisibility() != View.GONE
+                    && !hasTextDeep(mainColumn)) {
                 saveVisibility(mainColumn);
                 mainColumn.setVisibility(View.GONE);
             }
