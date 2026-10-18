@@ -477,6 +477,30 @@ public abstract class PanelView extends FrameLayout {
             float vectorVel = (float) Math.hypot(
                     mVelocityTracker.getXVelocity(), mVelocityTracker.getYVelocity());
 
+            // pd1610 v78: 原机 PanelView$3 ACTION_UP 的速度规则。
+            // ⚠ jadx 把最后那行反编译成「两个分支都是 0.0f」，别照抄 —— 真身是
+            //     if (Math.abs(mFinalTouchY - mInitialTouchY) < 20dp
+            //             || v < 100dp/s) { v = 0; }
+            // 也就是「两个条件都不成立才保留速度」。smali 0x3c8..0x3da：
+            //     cmpg-float |dy|, 20dp ; if-ltz  → v = 0     （拖够 20dp 就清零）
+            //     cmpg-float v,   100dp/s ; if-gez → v = 0    （拖得短但不够快也清零）
+            // ⇒ 短促快挥按方向开/关；正常拖动纯看松手位置。
+            if (useS5PanelPhysics()) {
+                final float density = getResources().getDisplayMetrics().density;
+                final float minDistPx = 20f * density;    // fling_gesture_min_dist
+                final float minVelPx = 100f * density;    // fling_expand_min_velocity
+                final float maxOutPx = 3000f * density;   // fling_gesture_max_output_velocity
+                // smali 0x3c8..0x3db（if-ltz = 「小于零则跳」）：
+                //     |dy| < 20dp        → v = 0     （几乎没动）
+                //     |v|  < 100dp/s     → v = 0     （拖得慢）
+                //     否则                → 保留 v（夹到 ±3000dp/s）
+                if (Math.abs(y - mInitialTouchY) < minDistPx || vectorVel < minVelPx) {
+                    vel = 0f;
+                } else {
+                    vel = Math.max(-maxOutPx, Math.min(maxOutPx, vel));
+                }
+            }
+
             boolean expand = flingExpands(vel, vectorVel, x, y)
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL
                     || forceCancel;
@@ -757,7 +781,11 @@ public abstract class PanelView extends FrameLayout {
         }
         mOverExpandedBeforeFling = getOverExpansionAmount() > 0f;
         ValueAnimator animator = createHeightAnimator(target);
-        if (expand) {
+        if (useS5PanelPhysics()) {
+            // pd1610 v77: 三星 S5 不用 FlingAnimationUtils 的缓出曲线，见
+            // applyS5PanelAnimation() 的注释（原机 PanelView.animationTick）。
+            applyS5PanelAnimation(animator, mExpandedHeight, target, vel);
+        } else if (expand) {
             if (expandBecauseOfFalsing && vel < 0) {
                 vel = 0;
             }
@@ -810,6 +838,81 @@ public abstract class PanelView extends FrameLayout {
         });
         setAnimator(animator);
         animator.start();
+    }
+
+    /**
+     * pd1610 v77: S5 控制中心用自家动画曲线。只有 NotificationPanelView 在
+     * 「S5 样式 + 解锁后的控制中心」两个条件都满足时返回 true。
+     */
+    protected boolean useS5PanelPhysics() {
+        return false;
+    }
+
+    /**
+     * pd1610 v77: 复刻三星 S5 PanelView.animationTick() 的「恒加速度」模型。
+     *
+     * 原机（G9008V 官方 SystemUI 反编译，PanelView.java:193 附近）：
+     *     mAccel = mClosing ? -mCollapseAccelPx : mExpandAccelPx;   // ±2000dp/s²
+     *     mVel  += mAccel * dt;
+     *     h     += mVel * dt;
+     * 而且手势速度在 ACTION_UP 里两条分支都赋 0f（PanelView$3.onTouch），
+     * 等于每次都从静止起步 ⇒ 不是原生那种「先快后慢」的缓出，而是「越走越快」。
+     *
+     * 从静止、恒加速走完 d px：T = sqrt(2d/a)，h(t) = h0 ± d*(t/T)²
+     * ⇒ 插值器就是 t²，时长由 S5 的加速度反推。
+     */
+    protected void applyS5PanelAnimation(ValueAnimator animator, float from, float to,
+            float velocityPxPerSecond) {
+        // 原机 PanelView.animationTick() 的积分：
+        //     mAccel = mClosing ? -collapse_accel : +expand_accel;   // ±2000dp/s²
+        //     mVel  += mAccel * dt;
+        //     展开: mVel = min(mVel, +fling_gesture_max_output_velocity 3000dp/s);
+        //     收起: mVel = min(mVel, -fling_collapse_min_velocity 100dp/s);
+        //     mExpandedHeight += mVel * dt;                          // 到顶/到底即停
+        // 解析形式就是 h(t) = h0 + v0·t + ½·a·t²。v0 的来源：
+        //   · 点开/点关 = ±self_expand_velocity / self_collapse_velocity（2000dp/s）；
+        //   · 手势拖动 ⇒ 0（原机 PanelView$3 ACTION_UP 里拖够 20dp 就把速度清零），
+        //     只有 20dp 内的短促快挥才带着速度进来（见 endMotionEvent 的 S5 分支）。
+        final float density = getResources().getDisplayMetrics().density;
+        final boolean expanding = to > from;
+        final float dist = Math.abs(to - from);
+        final float accel = 2000f * density;              // 2000dp/s²，永远朝目标方向
+        final float maxOut = 3000f * density;             // fling_gesture_max_output_velocity
+        final float minCollapse = 100f * density;         // fling_collapse_min_velocity
+        final float v0 = expanding
+                ? Math.max(0f, Math.min(velocityPxPerSecond, maxOut))
+                : Math.min(0f, Math.min(velocityPxPerSecond, -minCollapse));
+        if (dist <= 0f) {
+            animator.setDuration(1);
+            return;
+        }
+        final float speed = Math.abs(v0);
+        // dist = speed·T + ½·accel·T²  ⇒  T = (-speed + √(speed² + 2·accel·dist)) / accel
+        final float seconds = (float) ((-speed
+                + Math.sqrt(speed * speed + 2f * accel * dist)) / accel);
+        final float total = Math.max(0.001f, seconds);
+        animator.setInterpolator(f -> {
+            // pd1610 v81: 端点必须精确。
+            // f=1 时 travelled/dist 因浮点尾差可能给 0.99999994 ⇒ 动画值
+            // 起点×(1-0.99999994) ≈ 1e-4 ≠ 0 ⇒ 撞上 setExpandedHeightInternal()
+            // 里的「几乎到 0 就 end()」判据 ⇒ end() 又回灌本监听器 ⇒ 爆栈。
+            if (f >= 1f) {
+                return 1f;
+            }
+            if (f <= 0f) {
+                return 0f;
+            }
+            final float t = f * total;
+            final float travelled = speed * t + 0.5f * accel * t * t;
+            return Math.min(1f, Math.max(0f, travelled / dist));
+        });
+        animator.setDuration(Math.max(1L, (long) (total * 1000f)));
+    }
+
+    /** pd1610 v78: S5 的自展开/自收起速度（self_expand_velocity = self_collapse_velocity = 2000dp/s）。 */
+    private float getS5SelfVelocity() {
+        return useS5PanelPhysics()
+                ? 2000f * getResources().getDisplayMetrics().density : 0f;
     }
 
     protected abstract boolean shouldUseDismissingAnimation();
@@ -869,6 +972,9 @@ public abstract class PanelView extends FrameLayout {
         setExpandedHeight(currentMaxPanelHeight);
     }
 
+    /** pd1610 v81: mHeightAnimator.end() 的重入闸（见 setExpandedHeightInternal）。 */
+    private boolean mS5EndingHeightAnimator;
+
     public void setExpandedHeightInternal(float h) {
         if (mExpandLatencyTracking && h != 0f) {
             DejankUtils.postAfterTraversal(() -> LatencyTracker.getInstance(mContext).onActionEnd(
@@ -891,10 +997,19 @@ public abstract class PanelView extends FrameLayout {
 
         // If we are closing the panel and we are almost there due to a slow decelerating
         // interpolator, abort the animation.
+        // pd1610 v81: 这段会重入 —— end() → animateValue(1f) → 本动画的监听器 →
+        // 再进本方法。只要那一帧的动画值还落在 (0,1)，就会无限套下去
+        // （StackOverflow / ANR，实测「上滑收控制中心」必现）。插值器端点已修，
+        // 这里再加一道硬闸：end() 期间再进来只把高度归零，不再 end()。
         if (mExpandedHeight < 1f && mExpandedHeight != 0f && mClosing) {
             mExpandedHeight = 0f;
-            if (mHeightAnimator != null) {
-                mHeightAnimator.end();
+            if (mHeightAnimator != null && !mS5EndingHeightAnimator) {
+                mS5EndingHeightAnimator = true;
+                try {
+                    mHeightAnimator.end();
+                } finally {
+                    mS5EndingHeightAnimator = false;
+                }
             }
         }
         mExpandedFraction = Math.min(1f,
@@ -969,7 +1084,8 @@ public abstract class PanelView extends FrameLayout {
                 mNextCollapseSpeedUpFactor = speedUpFactor;
                 postDelayed(mFlingCollapseRunnable, 120);
             } else {
-                fling(0, false /* expand */, speedUpFactor, false /* expandBecauseOfFalsing */);
+                fling(-getS5SelfVelocity(), false /* expand */, speedUpFactor,
+                        false /* expandBecauseOfFalsing */);
             }
         }
     }
@@ -981,7 +1097,7 @@ public abstract class PanelView extends FrameLayout {
     private final Runnable mFlingCollapseRunnable = new Runnable() {
         @Override
         public void run() {
-            fling(0, false /* expand */, mNextCollapseSpeedUpFactor,
+            fling(-getS5SelfVelocity(), false /* expand */, mNextCollapseSpeedUpFactor,
                     false /* expandBecauseOfFalsing */);
         }
     };
@@ -1033,7 +1149,7 @@ public abstract class PanelView extends FrameLayout {
                             getViewTreeObserver().removeOnGlobalLayoutListener(this);
                             if (mAnimateAfterExpanding) {
                                 notifyExpandingStarted();
-                                fling(0, true /* expand */);
+                                fling(getS5SelfVelocity(), true /* expand */);
                             } else {
                                 setExpandedFraction(1f);
                             }

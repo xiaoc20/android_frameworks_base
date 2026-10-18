@@ -54,6 +54,7 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.logging.MetricsLogger;
@@ -284,6 +285,13 @@ public class NotificationPanelView extends PanelView implements
     private boolean mS5LastKeyguard;
     // pd1610: 上一次通知行是否套了 S5 样式（只有解锁后的控制中心才套）
     private boolean mS5LastStyled;
+    // pd1610 v66: 底栏（面板最下面一条运营商名）
+    private TextView mS5BottomBar;
+    // pd1610 v67: 几何日志去重（v68：按几何四元组去重，布局一变就再打）
+    private int mS5LoggedBarH = -1;
+    private String mS5LoggedKey;
+    // pd1610 v70: 底部留空条高（= 面板高 - 通知列表底边）；-1 = 还没摆过
+    private int mS5Strip = -1;
     private ValueAnimator mQsExpansionAnimator;
     private FlingAnimationUtils mFlingAnimationUtils;
     private int mStatusBarMinHeight;
@@ -539,6 +547,17 @@ public class NotificationPanelView extends PanelView implements
                 == com.android.systemui.qs.QsStyle.S5) {
             mNotificationStackScroller.setBackgroundColor(
                     mContext.getColor(R.color.pd1610_qs_notif_bg));
+            mS5BottomBar = findViewById(R.id.pd1610_s5_bottom_bar);
+            updateS5BottomBar();
+            // pd1610 v67: 布局稳定后核一次几何（底栏必须正好压在
+            // 「通知区下沿 → 窗口底」这条带上）
+            addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                        int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    logS5Geometry();
+                }
+            });
             // 通知列表的行是按 NotificationStackScrollLayout 内部字段 mTopPadding
             // 摆的（View.setPadding 只管滚动区，行照样从 y=0 开始被 QS 盖住）。
             // 所以只能让 QS 侧的 top padding = QSContainer 实际高度：
@@ -810,6 +829,8 @@ public class NotificationPanelView extends PanelView implements
             mExpandAfterLayoutRunnable.run();
             mExpandAfterLayoutRunnable = null;
         }
+        // pd1610 v70: S5 底栏 —— 每次布局都摆一次（listener 靠不住，见方法注释）
+        layoutS5BottomBar();
     }
 
     private void updateGestureExclusionRect() {
@@ -1088,6 +1109,7 @@ public class NotificationPanelView extends PanelView implements
         setClosingWithAlphaFadeout(!expand && !isOnKeyguard() && getFadeoutAlpha() == 1.0f);
         super.flingToHeight(vel, expand, target, collapseSpeedUpFactor, expandBecauseOfFalsing);
     }
+
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
@@ -1495,8 +1517,36 @@ public class NotificationPanelView extends PanelView implements
         }
     }
 
+    /**
+     * pd1610 v77: S5 控制中心 = 恒加速度动画（原机 PanelView.animationTick）。
+     * 只在「S5 样式 + 解锁后的控制中心」生效；锁屏保持原生。
+     */
+    @Override
+    protected boolean useS5PanelPhysics() {
+        return com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5
+                && mBarState == StatusBarState.SHADE;
+    }
+
+    /**
+     * pd1610 v77: S5 的展开/收起判据不看速度，只看手指松开时过没过半屏。
+     * 原机 PanelView.animationTick():
+     *     if (mVel == 0) mClosing = mFinalTouchY / getFullHeight() < 0.5f;
+     * 而 mVel 恒为 0（原机 PanelView$3 的 ACTION_UP 里两条分支都赋 0f）⇒ 实际就这一条。
+     */
     @Override
     protected boolean flingExpands(float vel, float vectorVel, float x, float y) {
+        if (useS5PanelPhysics()) {
+            // 原机 PanelView.animationTick() 的起手分支：
+            //     if (mVel == 0)   mClosing = mFinalTouchY / getFullHeight() < 0.5f;
+            //     else             mClosing = (mExpandedHeight > 0 && mVel < 0);
+            // 速度已在 PanelView.endMotionEvent() 里按 S5 规则预处理过
+            // （拖够 20dp 一律归零 ⇒ 这里的 vel 非 0 只可能是短促快挥）。
+            if (vel != 0f) {
+                return vel > 0f || getExpandedHeight() == 0f;
+            }
+            return y >= getHeight() / 2f;
+        }
         boolean expands = super.flingExpands(vel, vectorVel, x, y);
 
         // If we are already running a QS expansion, make sure that we keep the panel open.
@@ -1704,6 +1754,9 @@ public class NotificationPanelView extends PanelView implements
         maybeAnimateBottomAreaAlpha();
         resetHorizontalPanelPosition();
         updateQsState();
+        // pd1610 v72: 锁屏/控制中心之间切换时，底栏的可见性跟着变 ——
+        // 只靠 onLayout 会漏（面板自己的 bounds 不变，见 layoutS5BottomBar 注释）。
+        layoutS5BottomBar();
     }
 
     private void maybeAnimateBottomAreaAlpha() {
@@ -1920,6 +1973,177 @@ public class NotificationPanelView extends PanelView implements
         mQs.setExpanded(mQsExpanded);
     }
 
+    /**
+     * pd1610 v70: 把 S5 底栏铺满「通知列表底边 → 面板底」这条留空，文字只在下半格。
+     * ⚠ 不能用 OnLayoutChangeListener：面板自己的 bounds 不变（展开靠 translationY），
+     * listener 在展开后不会再触发。必须在 onLayout 里做。
+     */
+    private void layoutS5BottomBar() {
+        if (mS5BottomBar == null || mNotificationStackScroller == null) {
+            return;
+        }
+        // pd1610 v73: 底栏只属于【解锁后的控制中心】。锁屏（含锁屏下拉）一律不显示：
+        //  - 锁屏本身是「展开」状态（要显示通知）⇒ isFullyCollapsed() 恒 false，用它判没意义；
+        //  - 锁屏下拉时 mBarState 仍是 KEYGUARD（本机实测，不会进 SHADE_LOCKED），
+        //    而且底栏就算 VISIBLE 也被锁屏底部那块暗色渐变盖住、根本画不出来。
+        // 用户定调「锁屏原生、控制中心归控制中心」⇒ 锁屏底部整个交回系统。
+        if (mBarState == StatusBarState.KEYGUARD) {
+            if (mS5BottomBar.getVisibility() != View.GONE) {
+                mS5BottomBar.setVisibility(View.GONE);
+            }
+            return;
+        }
+        if (mS5BottomBar.getVisibility() != View.VISIBLE) {
+            mS5BottomBar.setVisibility(View.VISIBLE);
+        }
+        final int w = getWidth();
+        final int h = getHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        int sb = mNotificationStackScroller.getTop() + mNotificationStackScroller.getHeight();
+        if (sb <= 0 || sb > h) {
+            sb = h;
+        }
+        final int strip = h - sb;
+        // pd1610 v78/v80: 底栏贴「面板当前下沿」。
+        // S5 原机的底栏（carrier_label_layout）是 PanelView 的子 View、靠面板底边；
+        // 而面板的测量高度就是 mExpandedHeight
+        // （原机 onMeasure: setMeasuredDimension(..., makeMeasureSpec((int) mExpandedHeight))）。
+        // 所以拖到一半时它就在半屏处跟着手指走；钉死在屏幕底只会被 dispatchDraw 的
+        // clipRect 裁掉 —— 那就是「消失了部分界面」。
+        final int edge = s5BottomBarEdge(h);
+        final int barH = strip > 0 ? strip : mS5BottomBar.getHeight();
+        mS5BottomBar.layout(0, edge - barH, w, edge);
+        if (strip != mS5Strip) {
+            mS5Strip = strip;
+            // 文字压到下半个：padding-top = strip/2
+            mS5BottomBar.setPadding(0, strip / 2, 0, 0);
+        }
+        logS5Geometry();
+    }
+
+    /**
+     * pd1610 v80: 底栏下沿的位置。
+     * 面板的最大高度只有 displayH（比窗口少一条导航栏），全展开时若以下沿画，
+     * 底栏会停在 2496、下面留 64 px 露桌面（用户反馈「没盖满底部」）。
+     * ⇒ 全展开直接铺到窗口最底。
+     */
+    private int s5BottomBarEdge(int h) {
+        if (getExpandedHeight() >= getMaxPanelHeight() - 0.5f) {
+            return h;
+        }
+        return Math.max(0, Math.min(h, Math.round(getExpandedHeight())));
+    }
+
+    /**
+     * pd1610 v80: 只挪底栏位置，不碰可见性 / padding ——
+     * 那两个会 requestLayout，在 onHeightUpdated（可能正在布局中）里调会递归。
+     */
+    private void positionS5BottomBar() {
+        if (mS5BottomBar == null || mS5BottomBar.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        final int w = getWidth();
+        final int h = getHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        int barH = mS5Strip > 0 ? mS5Strip : mS5BottomBar.getHeight();
+        if (barH <= 0) {
+            barH = 192;
+        }
+        final int edge = s5BottomBarEdge(h);
+        mS5BottomBar.layout(0, edge - barH, w, edge);
+    }
+
+    /** pd1610 v67: 打印一次 S5 控制中心的几何真值（只有几何变化时才打）。 */
+    private void logS5Geometry() {
+        if (mS5BottomBar == null || mNotificationStackScroller == null) {
+            return;
+        }
+        final int barH = mS5BottomBar.getHeight();
+        final int panelH = getHeight();
+        final int scrollerH = mNotificationStackScroller.getHeight();
+        final int barTop = mS5BottomBar.getTop();
+        final String key = panelH + "/" + scrollerH + "/" + barTop + "/" + barH
+                + "/" + Math.round(getExpandedHeight());
+        if (key.equals(mS5LoggedKey)) {
+            return;
+        }
+        mS5LoggedKey = key;
+        mS5LoggedBarH = barH;
+        int insetBottom = -1;
+        try {
+            final android.view.WindowInsets wi = getRootWindowInsets();
+            if (wi != null) {
+                insetBottom = wi.getStableInsetBottom();
+            }
+        } catch (Throwable t) {
+            // 拿不到就算了
+        }
+        final android.view.ViewGroup.LayoutParams nslLp =
+                mNotificationStackScroller.getLayoutParams();
+        final String nslLpDesc = (nslLp instanceof android.view.ViewGroup.MarginLayoutParams)
+                ? ("h=" + nslLp.height + ",bm="
+                        + ((android.view.ViewGroup.MarginLayoutParams) nslLp).bottomMargin)
+                : String.valueOf(nslLp == null ? -1 : nslLp.height);
+        android.util.Log.i("pd1610", "S5geo state=" + mBarState
+                + " collapsed=" + isFullyCollapsed()
+                + " barVis=" + (mS5BottomBar == null ? -1 : mS5BottomBar.getVisibility())
+                + " panelH=" + panelH
+                + " scrollerTop=" + mNotificationStackScroller.getTop()
+                + " scrollerH=" + scrollerH
+                + " scrollerLp(" + nslLpDesc + ")"
+                + " expH=" + Math.round(getExpandedHeight())
+                + " barTop=" + barTop
+                + " barH=" + barH
+                + " navRaw=" + mContext.getResources().getDimensionPixelSize(
+                        com.android.internal.R.dimen.navigation_bar_height)
+                + " insetBottom=" + insetBottom
+                + " displayH=" + mContext.getResources().getDisplayMetrics().heightPixels
+                + " density=" + mContext.getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * pd1610 v66: 底栏文字 = 运营商名（S5 参考机就是这一条）。
+     * 本机没插 SIM ⇒ 落到 framework 的 lockscreen_carrier_default（「无服务」）。
+     */
+    private void updateS5BottomBar() {
+        if (mS5BottomBar == null) {
+            return;
+        }
+        mS5BottomBar.setVisibility(View.VISIBLE);
+        // pd1610 v67: 高度钉成与 NSL 裁剪同一个基准（navigation_bar_height 的 px 值），
+        // 底栏才能铺满「通知区下沿 → 窗口底」，不留壁纸缝。
+        final int navPx = mContext.getResources().getDimensionPixelSize(
+                com.android.internal.R.dimen.navigation_bar_height) / 2;
+        final android.view.ViewGroup.LayoutParams barLp = mS5BottomBar.getLayoutParams();
+        if (barLp != null && barLp.height != navPx) {
+            barLp.height = navPx;
+            mS5BottomBar.setLayoutParams(barLp);
+        }
+        String name = null;
+        try {
+            final android.telephony.TelephonyManager tm =
+                    mContext.getSystemService(android.telephony.TelephonyManager.class);
+            if (tm != null) {
+                name = tm.getNetworkOperatorName();
+                if (android.text.TextUtils.isEmpty(name)) {
+                    final int simState = tm.getSimState();
+                    if (simState == android.telephony.TelephonyManager.SIM_STATE_ABSENT
+                            || simState == android.telephony.TelephonyManager.SIM_STATE_UNKNOWN) {
+                        name = mContext.getString(
+                                com.android.internal.R.string.lockscreen_carrier_default);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            // 无 telephony 特性 / 读不到就当空
+        }
+        mS5BottomBar.setText(android.text.TextUtils.isEmpty(name) ? "" : name);
+    }
+
     /** pd1610: S5 —— 状态切换后把所有已存在的通知行重新套一遍样式（或还原原生）。 */
     private void restyleS5NotificationRows() {
         if (mNotificationStackScroller == null) {
@@ -1954,12 +2178,20 @@ public class NotificationPanelView extends PanelView implements
         // pd1610: S5 的磁贴区 / 亮度条 / 通知条和下面的通知列表是一个整体，
         // 从状态栏划下来就整块平移，不存在「QS 先收起、再划第二下展开」的阶段。
         // 所以这里直接把 QS 高度钉在全展开值上（首帧 mQsMaxExpansionHeight 还是 0，跳过）。
+        // pd1610 v76: ⚠ 只在「面板已经拉到底」时把 QS 钉满。
+        // v75 之前是无条件钉满，实测手指只拖 60 px 整块控制中心就全下来了
+        // （logcat S5geo panelH=2560；原生同一点才 180 px）—— 因为 QS 一上来就吃掉了
+        // 面板的全部高度，面板每长 1 px 都落在「已展开的 QS」里。
+        // 现在拖动过程中 QS 从 0 长到满（磁贴那块跟着手指一起滑下来），
+        // 到顶再钉，展开态外观不变。
         if (mQsMaxExpansionHeight > 0 && mQsExpansionEnabled
                 && com.android.systemui.qs.QsStyle.get(mContext)
                         == com.android.systemui.qs.QsStyle.S5) {
-            // pd1610: S5 解锁态整块控制中心恒定展开；
-            // 锁屏态钉 0 —— 原生的做法是把 QS 当锁屏的一部分拉出来，
-            // 那正是「控制中心挂在锁屏上」的残留。S5 锁屏只有通知。
+            // pd1610 v77: S5 原机的整个控制中心就是**一个高度**——
+            // PanelView.onMeasure 里直接 setMeasuredDimension(mExpandedHeight)，
+            // 超出部分由 View 自己的边界裁掉。所以这里 QS 恒钉满（整块内容不动），
+            // 「露出多少」交给 dispatchDraw 里的 clipRect(0,0,w,expandedHeight)。
+            // 锁屏态钉 0：S5 锁屏只有通知，控制中心不挂在锁屏上。
             height = mBarState == StatusBarState.KEYGUARD
                     ? mQsMinExpansionHeight : mQsMaxExpansionHeight;
         }
@@ -2298,6 +2530,11 @@ public class NotificationPanelView extends PanelView implements
 
     @Override
     protected void onHeightUpdated(float expandedHeight) {
+        // pd1610 v80: 拖动时面板自己的 bounds 不变 ⇒ 不走 onLayout，底栏得跟着高度走。
+        // ⚠ 这里只能纯 layout()：v79 在这调了完整的 layoutS5BottomBar()（含
+        // setVisibility/setPadding ⇒ requestLayout），requestLayout 打进布局过程中
+        // ⇒ 递归 ⇒ SystemUI StackOverflow 崩掉。
+        positionS5BottomBar();
         if (!mQsExpanded || mQsExpandImmediate || mIsExpanding && mQsExpandedWhenExpandingStarted) {
             // Updating the clock position will set the top padding which might
             // trigger a new panel height and re-position the clock.
@@ -3093,7 +3330,21 @@ public class NotificationPanelView extends PanelView implements
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
-        super.dispatchDraw(canvas);
+        // pd1610 v77: 让控制中心「露出多少 = 展开高度」。S5 原机的 PanelView
+        // 自身测量高度就是 mExpandedHeight（onMeasure 里 setMeasuredDimension 直接给
+        // mExpandedHeight），多余内容被 View 边界裁掉。我们的面板是全屏的，只能显式裁：
+        // 否则 QS 钉满后手指只拖 60 px，整块磁贴也会画出来（「一碰全开」）。
+        if (useS5PanelPhysics() && getExpandedHeight() > 0f) {
+            final int save = canvas.save();
+            // 全展开：裁到窗口底（面板最大高度比窗口少一条导航栏，见 s5BottomBarEdge）
+            final int clipBottom = getExpandedHeight() >= getMaxPanelHeight() - 0.5f
+                    ? getHeight() : Math.round(getExpandedHeight());
+            canvas.clipRect(0, 0, getWidth(), clipBottom);
+            super.dispatchDraw(canvas);
+            canvas.restoreToCount(save);
+        } else {
+            super.dispatchDraw(canvas);
+        }
         if (mCurrentPanelAlpha != 255) {
             canvas.drawRect(0, 0, canvas.getWidth(), canvas.getHeight(), mAlphaPaint);
         }

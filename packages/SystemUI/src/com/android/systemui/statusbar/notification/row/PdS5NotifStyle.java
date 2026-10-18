@@ -41,6 +41,10 @@ public final class PdS5NotifStyle {
     private static final int TAG_MOVED_INDEX = 0x7f0f1625;
     private static final int TAG_MOVED_LP = 0x7f0f1626;
     private static final int TAG_COMPACTED = 0x7f0f1627;
+    // pd1610 v72: 我们写进去的那个颜色；restore 时用它判断「这层色还是不是我们的」
+    private static final int TAG_S5_COLOR = 0x7f0f1628;
+    // pd1610 v72: 我们挂过长按监听的图标（还原时要摘掉）
+    private static final int TAG_S5_ICON = 0x7f0f1629;
 
     private static final int C_TITLE = 0xffffffff;    // 标题：纯白
     private static final int C_BODY = 0xff82afd0;     // 正文：钢蓝（原机截图取样）
@@ -66,6 +70,12 @@ public final class PdS5NotifStyle {
             // 锁屏 / 锁屏下拉：保持原生
             return;
         }
+        // pd1610 v74: MediaStyle（媒体通知）整条保持原生 —— 它的模板结构和普通通知不同，
+        // 拆行头/搬图标会把整块布局顶歪（实测 s1.png：绿块从 x≈275 一路吃到屏幕右缘）。
+        // 媒体卡自带底色，原生黑字在它上面是对的，刷白反而更花 ⇒ 颜色也不碰。
+        if (root.findViewById(com.android.internal.R.id.media_actions) != null) {
+            return;
+        }
         recolor(root);
         // pd1610 v64: 子行也收，但只收 header、不搬 icon/time —— 见 compactTemplate()
         compact(root, isChildRow(root));
@@ -81,6 +91,19 @@ public final class PdS5NotifStyle {
      * （实测两次：NotificationHeaderUtil.java:79 与 :218）。
      * 子行只靠 recolor 就够看清了，行高保持原生。
      */
+    /** pd1610 v72: 从内容视图往上找所属的 ExpandableNotificationRow。 */
+    private static ExpandableNotificationRow findRow(View v) {
+        View p = v;
+        while (p != null) {
+            if (p instanceof ExpandableNotificationRow) {
+                return (ExpandableNotificationRow) p;
+            }
+            final android.view.ViewParent parent = p.getParent();
+            p = parent instanceof View ? (View) parent : null;
+        }
+        return null;
+    }
+
     private static boolean isChildRow(View v) {
         View p = v;
         while (p != null) {
@@ -191,13 +214,25 @@ public final class PdS5NotifStyle {
             v.setVisibility((Integer) v.getTag(TAG_ORIG_VIS));
             v.setTag(TAG_ORIG_VIS, null);
         }
+        if (v.getTag(TAG_S5_ICON) != null) {
+            v.setOnLongClickListener(null);
+            v.setTag(TAG_S5_ICON, null);
+        }
         if (v instanceof TextView && v.getTag(TAG_ORIG_COLOR) instanceof Integer) {
             final TextView tv = (TextView) v;
-            tv.setTextColor((Integer) v.getTag(TAG_ORIG_COLOR));
-            final Object tf = v.getTag(TAG_ORIG_TF);
-            tv.setTypeface(tf instanceof Typeface ? (Typeface) tf : null);
+            // pd1610 v72: ⚠ 只在「这层色还是我们写的那层」时才还原。
+            // 系统重新绑定过（锁屏/切换状态）就会把这几个 view 刷成原生色，
+            // 此时硬写 TAG_ORIG_COLOR 会把刚刷好的原生灰/蓝踩回上一次存下的黑
+            // —— 实测就是锁屏通知变纯黑那一条（k1 vs n2 像素对比）。
+            final Object s5 = v.getTag(TAG_S5_COLOR);
+            if (!(s5 instanceof Integer) || tv.getCurrentTextColor() == (Integer) s5) {
+                tv.setTextColor((Integer) v.getTag(TAG_ORIG_COLOR));
+                final Object tf = v.getTag(TAG_ORIG_TF);
+                tv.setTypeface(tf instanceof Typeface ? (Typeface) tf : null);
+            }
             v.setTag(TAG_ORIG_COLOR, null);
             v.setTag(TAG_ORIG_TF, null);
+            v.setTag(TAG_S5_COLOR, null);
         }
         if (v instanceof ViewGroup) {
             final ViewGroup g = (ViewGroup) v;
@@ -242,6 +277,7 @@ public final class PdS5NotifStyle {
                     tv.setTag(TAG_ORIG_TF, tv.getTypeface());
                 }
                 tv.setTextColor(color);
+                tv.setTag(TAG_S5_COLOR, color);
                 if (bold) {
                     tv.setTypeface(Typeface.create(tv.getTypeface(), Typeface.BOLD));
                 }
@@ -369,6 +405,21 @@ public final class PdS5NotifStyle {
                 lp.gravity = Gravity.CENTER_VERTICAL;
                 lp.setMarginEnd(dp(scope, 10));
                 row.addView(icon, 0, lp);
+                // pd1610 v72: 长按图标 = 展开/收起这条通知。
+                // S5 行头（含原生那个展开箭头）是 GONE 的 ⇒ 用户没有任何入口把一条
+                // 通知展开，「浏览过就自动折叠」这条功能根本触发不到（用户：我没感觉到）。
+                // 用长按而不是单击：单击仍然是「打开应用」的语义。
+                final ExpandableNotificationRow enr = findRow(row);
+                if (enr != null) {
+                    icon.setTag(TAG_S5_ICON, Boolean.TRUE);
+                    icon.setOnLongClickListener(new View.OnLongClickListener() {
+                        @Override
+                        public boolean onLongClick(View v) {
+                            enr.setUserExpanded(!enr.isExpanded());
+                            return true;
+                        }
+                    });
+                }
             }
 
             final View time = header.findViewById(com.android.internal.R.id.time);
@@ -421,13 +472,17 @@ public final class PdS5NotifStyle {
             final ViewGroup.LayoutParams lp = mainColumn.getLayoutParams();
             if (lp instanceof ViewGroup.MarginLayoutParams) {
                 final ViewGroup.MarginLayoutParams cur = (ViewGroup.MarginLayoutParams) lp;
-                final int pad = dp(scope, 8);
-                if (cur.topMargin != pad || cur.bottomMargin != pad) {
+                // pd1610 v75: 8dp/8dp 太挤（实测整行只有 222 px = 55.5 dp，标题正文贴边）。
+                // 用户原话「太挤了，再留点位置」。参考机 S5 是一条一空 ⇒
+                // 上 20dp、下 28dp（下边多出来的就是行与行之间那个空），整行 350 px。
+                final int top = dp(scope, 20);
+                final int bottom = dp(scope, 28);
+                if (cur.topMargin != top || cur.bottomMargin != bottom) {
                     saveLayoutParams(mainColumn);
                     final ViewGroup.MarginLayoutParams mlp =
                             (ViewGroup.MarginLayoutParams) copyLp(cur);
-                    mlp.topMargin = pad;
-                    mlp.bottomMargin = pad;
+                    mlp.topMargin = top;
+                    mlp.bottomMargin = bottom;
                     mainColumn.setLayoutParams(mlp);
                 }
             }

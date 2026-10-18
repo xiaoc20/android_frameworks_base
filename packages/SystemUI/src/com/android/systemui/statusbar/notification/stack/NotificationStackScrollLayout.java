@@ -2510,15 +2510,20 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
     }
 
     @ShadeViewRefactor(RefactorComponent.SHADE_VIEW)
-    /** pd1610: S5 底栏留空区高度（= 导航栏高度，当前 48dp）。 */
+    /**
+     * pd1610: S5 底部留空区高度 = 导航栏高度的一半（当前 48dp / 2 = 24dp）。
+     * v67 起按用户要求对半分：通知区往下多吃一半，剩下那一半给底栏。
+     */
     private int getS5BottomBarHeight() {
         if (com.android.systemui.qs.QsStyle.get(getContext())
                 != com.android.systemui.qs.QsStyle.S5 || onKeyguard()) {
             return 0;
         }
         if (mS5BottomBarHeight < 0) {
-            mS5BottomBarHeight = getResources().getDimensionPixelSize(
-                    com.android.internal.R.dimen.navigation_bar_height);
+            // pd1610 v70: 裁剪回 0 —— 底栏（NotificationPanelView 里的 TextView）自己
+            // 铺满「scroller 底边 → 面板底」，通知区的深色底吃到 scroller 底边为止；
+            // 再裁一刀会把背景一起裁掉，在分界线上面漏 32 px 壁纸（v67 实测）。
+            mS5BottomBarHeight = 0;
         }
         return mS5BottomBarHeight;
     }

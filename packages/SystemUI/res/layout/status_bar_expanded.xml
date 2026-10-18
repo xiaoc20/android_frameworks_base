@@ -90,6 +90,21 @@
         layout="@layout/keyguard_bottom_area"
         android:visibility="gone" />
 
+    <!-- pd1610 v66: S5 的底栏 —— 面板最下面一条深色带 + 居中运营商名
+         （参考 参考逻辑1.png「台湾之星」/ 参考逻辑与界面.png「vodafone UK」） -->
+    <TextView
+        android:id="@+id/pd1610_s5_bottom_bar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/pd1610_qs_s5_bottom_bar_height"
+        android:layout_gravity="bottom"
+        android:background="@color/pd1610_qs_s5_bottom_bar_bg"
+        android:ellipsize="marquee"
+        android:gravity="center"
+        android:singleLine="true"
+        android:textColor="@color/pd1610_qs_s5_bottom_bar_text"
+        android:textSize="@dimen/pd1610_qs_s5_bottom_bar_text_size"
+        android:visibility="gone" />
+
     <com.android.systemui.statusbar.AlphaOptimizedView
         android:id="@+id/qs_navbar_scrim"
         android:layout_height="96dp"

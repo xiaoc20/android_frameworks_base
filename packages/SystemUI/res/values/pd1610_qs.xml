@@ -37,6 +37,12 @@
     <dimen name="pd1610_qs_s5_panel_padding_bottom">14dp</dimen>
     <dimen name="pd1610_qs_s5_brightness_height">52dp</dimen>
 
+    <!-- 底栏（面板最下面一条运营商名）：颜色/字号按 参考逻辑1.png 底部采样 -->
+    <color name="pd1610_qs_s5_bottom_bar_bg">#ff001c27</color>
+    <color name="pd1610_qs_s5_bottom_bar_text">#ffffffff</color>
+    <dimen name="pd1610_qs_s5_bottom_bar_height">48dp</dimen>
+    <dimen name="pd1610_qs_s5_bottom_bar_text_size">13sp</dimen>
+
     <!-- 原包：时钟 28sp、日期 13sp、时钟左边距 13dp -->
     <dimen name="pd1610_qs_s5_clock_text_size">28sp</dimen>
     <dimen name="pd1610_qs_s5_date_text_size">13sp</dimen>
