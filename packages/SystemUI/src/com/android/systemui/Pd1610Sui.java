@@ -35,12 +35,22 @@ public final class Pd1610Sui {
     public static final String KEY_QS_IMAGE = "pd1610_sui_qs_image";
     /** 通知区背景色，0＝不覆盖 */
     public static final String KEY_NOTIF_BG = "pd1610_sui_notif_bg";
-    /** 亮度条背景色，0＝不覆盖 */
-    public static final String KEY_BRIGHT_BG = "pd1610_sui_bright_bg";
     /** 设置界面底图 */
     public static final String KEY_SETTINGS_IMAGE = "pd1610_sui_settings_image";
+    /** pd1610 v134: 自定义外观总开关，默认关（关＝S5 默认外观） */
+    public static final String KEY_ENABLE = "pd1610_sui_enable";
 
     private Pd1610Sui() {
+    }
+
+    /** pd1610 v134: 自定义外观总开关。默认关 ⇒ 一切走默认外观。 */
+    public static boolean isEnabled(Context context) {
+        try {
+            return Settings.System.getInt(
+                    context.getContentResolver(), KEY_ENABLE, 0) != 0;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     public static String getString(Context context, String key) {

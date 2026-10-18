@@ -536,10 +536,7 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
         if (com.android.systemui.qs.QsStyle.get(context)
                 == com.android.systemui.qs.QsStyle.S5) {
             try {
-                context.getContentResolver().registerContentObserver(
-                        android.provider.Settings.System.getUriFor(
-                                com.android.systemui.Pd1610Sui.KEY_NOTIF_BG),
-                        false,
+                final android.database.ContentObserver notifBgObserver =
                         new android.database.ContentObserver(
                                 new android.os.Handler(android.os.Looper.getMainLooper())) {
                             @Override
@@ -548,7 +545,15 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
                                 updateBackgroundDimming();
                                 invalidate();
                             }
-                        });
+                        };
+                context.getContentResolver().registerContentObserver(
+                        android.provider.Settings.System.getUriFor(
+                                com.android.systemui.Pd1610Sui.KEY_NOTIF_BG),
+                        false, notifBgObserver);
+                context.getContentResolver().registerContentObserver(
+                        android.provider.Settings.System.getUriFor(
+                                com.android.systemui.Pd1610Sui.KEY_ENABLE),
+                        false, notifBgObserver);
             } catch (Throwable t) {
                 // 注册失败只影响即时刷新
             }
@@ -1033,8 +1038,11 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
         if (com.android.systemui.qs.QsStyle.get(mContext)
                 == com.android.systemui.qs.QsStyle.S5 && !onKeyguard()) {
             // pd1610 v122: SUI 设置里设了颜色就用它，没设（0）走 S5 默认深青
-            final int sui = com.android.systemui.Pd1610Sui.getColor(
-                    mContext, com.android.systemui.Pd1610Sui.KEY_NOTIF_BG);
+            // pd1610 v134: 总开关关着就不用自定义色。
+            final int sui = com.android.systemui.Pd1610Sui.isEnabled(mContext)
+                    ? com.android.systemui.Pd1610Sui.getColor(
+                            mContext, com.android.systemui.Pd1610Sui.KEY_NOTIF_BG)
+                    : 0;
             bg = sui != 0 ? sui : mContext.getColor(R.color.pd1610_qs_notif_bg);
         }
         int color = ColorUtils.blendARGB(bg, Color.WHITE, colorInterpolation);

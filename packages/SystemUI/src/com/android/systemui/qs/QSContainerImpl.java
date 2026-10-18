@@ -69,6 +69,8 @@ public class QSContainerImpl extends FrameLayout {
 
     // pd1610 v122: SUI 设置 —— 控制中心顶图
     private ImageView mSuiQsImage;
+    /** pd1610 v133: 顶图的 LayoutParams —— 高度必须走 lp.height，setBottom 会被 layout 覆盖 */
+    private FrameLayout.LayoutParams mSuiImageLp;
 
     // pd1610: 三星 S5 的「通知」分隔条（QS 面板最下面那一条青色标题）
     private View mS5NotifBar;
@@ -195,13 +197,9 @@ public class QSContainerImpl extends FrameLayout {
             return;
         }
         registerSuiObservers();
-        // 亮度条背景色
-        final int brightBg = Pd1610Sui.getColor(ctx, Pd1610Sui.KEY_BRIGHT_BG);
-        if (brightBg != 0) {
-            View bv = mQSPanel.getBrightnessView();
-            if (bv != null) {
-                bv.setBackgroundColor(brightBg);
-            }
+        // pd1610 v134: 总开关默认关（用户：有些人喜欢默认就默认）。
+        if (!Pd1610Sui.isEnabled(ctx)) {
+            return;
         }
         // 顶图
         Drawable image = Pd1610Sui.loadImage(ctx,
@@ -214,10 +212,16 @@ public class QSContainerImpl extends FrameLayout {
         mSuiQsImage.setImageDrawable(image);
         mSuiQsImage.setImportantForAccessibility(
                 View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        addView(mSuiQsImage, 0, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
-        mBackground.setBackground(null);
+        mSuiImageLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0);
+        mSuiImageLp.gravity = Gravity.TOP;
+        // pd1610 v137: 插在 mBackground 之上（不能置空底色，否则图片以下的
+        // 通知区会透出壁纸 —— 用户看到「锁屏/通知区也被图片盖了」）。
+        addView(mSuiQsImage, indexOfChild(mBackground) + 1, mSuiImageLp);
+        // pd1610 v138: XML 里 mBackground / QSPanel 都是 elevation=4dp，按 Z 排序时
+        // 会把图片压在下面（实测只剩状态栏那一条能看见）。给同样的 Z：
+        // mBackground 索引在图片之前 ⇒ 图片盖住它；QSPanel 索引在图片之后 ⇒ 磁贴仍在上。
+        mSuiQsImage.setElevation(mBackground.getElevation());
     }
 
     private boolean mSuiObserverRegistered;
@@ -241,7 +245,7 @@ public class QSContainerImpl extends FrameLayout {
             cr.registerContentObserver(android.provider.Settings.System.getUriFor(
                     Pd1610Sui.KEY_QS_IMAGE), false, observer);
             cr.registerContentObserver(android.provider.Settings.System.getUriFor(
-                    Pd1610Sui.KEY_BRIGHT_BG), false, observer);
+                    Pd1610Sui.KEY_ENABLE), false, observer);
         } catch (Throwable t) {
             // 注册失败只影响即时刷新
         }
@@ -251,12 +255,9 @@ public class QSContainerImpl extends FrameLayout {
         if (mSuiQsImage != null) {
             removeView(mSuiQsImage);
             mSuiQsImage = null;
+            mSuiImageLp = null;
         }
         mBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
-        View bv = mQSPanel == null ? null : mQSPanel.getBrightnessView();
-        if (bv != null) {
-            bv.setBackground(null);
-        }
         applySui();
         updateHeaderVisibility();
         updateExpansion();
@@ -417,16 +418,45 @@ public class QSContainerImpl extends FrameLayout {
         mBackground.setTop(mQSPanel.getTop());
         mBackground.setBottom(height);
         // pd1610 v122: SUI 顶图铺到「亮度条上沿」为止
-        if (mSuiQsImage != null) {
-            int bottom = mQSPanel.getTop();
-            View bv = mQSPanel.getBrightnessView();
-            if (bv != null && bv.getVisibility() == View.VISIBLE) {
-                bottom += bv.getTop();
+        if (mSuiQsImage != null && mSuiImageLp != null) {
+            // pd1610 v135: 亮度条相对本容器的高度 —— 逐级累加 getTop()。
+            // v133 用 mQSPanel.getTop()+bv.getTop() 是错的（两个 View 不在同一坐标系），
+            // 算出来比实际大，图片会糊到通知区里去。
+            int bottom = 0;
+            // pd1610 v139: 下边界改用「通知」分隔条上沿（＝亮度条下沿）。
+            // QSPanel.getBrightnessView() 在 S5 布局里锚点偏下，会多铺一段到通知区。
+            // pd1610 v137: 锁屏上不挂顶图（用户：锁屏怎么也被干了）
+            final int sbState = com.android.systemui.Dependency.get(
+                    com.android.systemui.plugins.statusbar.StatusBarStateController.class)
+                    .getState();
+            final boolean keyguard = sbState == com.android.systemui.statusbar.StatusBarState.KEYGUARD
+                    || sbState == com.android.systemui.statusbar.StatusBarState.SHADE_LOCKED;
+            View anchor = mS5NotifBar;
+            if (anchor == null) {
+                anchor = mQSPanel == null ? null : mQSPanel.getBrightnessView();
             }
-            mSuiQsImage.setLeft(0);
-            mSuiQsImage.setRight(getWidth());
-            mSuiQsImage.setTop(0);
-            mSuiQsImage.setBottom(Math.min(bottom, height));
+            if (!keyguard && anchor != null && anchor.getVisibility() == View.VISIBLE) {
+                View v = anchor;
+                while (v != null && v != this) {
+                    bottom += v.getTop();
+                    android.view.ViewParent p = v.getParent();
+                    v = (p instanceof View) ? (View) p : null;
+                }
+            }
+            // 高度写进 LayoutParams，否则下一次 layout 会被 MATCH_PARENT 覆盖，
+            // 图片会一路铺进通知区。
+            final int h = Math.max(0, Math.min(bottom, height));
+            if (mSuiImageLp.height != h) {
+                mSuiImageLp.height = h;
+                mSuiQsImage.setLayoutParams(mSuiImageLp);
+            }
+            // pd1610 v142: 本容器 clipChildren=false，ImageView 会把 drawable 画到自己
+            // 边界之外（实测 h=752 却铺到 1395）。用 clipBounds 硬裁到自己的高度。
+            if (mSuiQsImage.getClipBounds() == null
+                    || mSuiQsImage.getClipBounds().bottom != h) {
+                mSuiQsImage.setClipBounds(
+                        new android.graphics.Rect(0, 0, getWidth(), h));
+            }
         }
     }
 
