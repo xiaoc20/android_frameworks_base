@@ -531,6 +531,28 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
             KeyguardBypassController keyguardBypassController,
             FalsingManager falsingManager) {
         super(context, attrs, 0, 0);
+        // pd1610 v122: SUI 设置 —— 通知区背景色，改完即时生效。
+        // 真正的底色在 updateBackgroundDimming() 的 mBackgroundPaint 里。
+        if (com.android.systemui.qs.QsStyle.get(context)
+                == com.android.systemui.qs.QsStyle.S5) {
+            try {
+                context.getContentResolver().registerContentObserver(
+                        android.provider.Settings.System.getUriFor(
+                                com.android.systemui.Pd1610Sui.KEY_NOTIF_BG),
+                        false,
+                        new android.database.ContentObserver(
+                                new android.os.Handler(android.os.Looper.getMainLooper())) {
+                            @Override
+                            public void onChange(boolean selfChange) {
+                                mCachedBackgroundColor = 0;
+                                updateBackgroundDimming();
+                                invalidate();
+                            }
+                        });
+            } catch (Throwable t) {
+                // 注册失败只影响即时刷新
+            }
+        }
         Resources res = getResources();
 
         mAllowLongPress = allowLongPress;
@@ -1010,7 +1032,10 @@ public class NotificationStackScrollLayout extends ViewGroup implements ScrollAd
         int bg = mBgColor;
         if (com.android.systemui.qs.QsStyle.get(mContext)
                 == com.android.systemui.qs.QsStyle.S5 && !onKeyguard()) {
-            bg = mContext.getColor(R.color.pd1610_qs_notif_bg);
+            // pd1610 v122: SUI 设置里设了颜色就用它，没设（0）走 S5 默认深青
+            final int sui = com.android.systemui.Pd1610Sui.getColor(
+                    mContext, com.android.systemui.Pd1610Sui.KEY_NOTIF_BG);
+            bg = sui != 0 ? sui : mContext.getColor(R.color.pd1610_qs_notif_bg);
         }
         int color = ColorUtils.blendARGB(bg, Color.WHITE, colorInterpolation);
 

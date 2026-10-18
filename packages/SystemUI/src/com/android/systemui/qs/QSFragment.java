@@ -316,6 +316,14 @@ public class QSFragment extends LifecycleFragment implements QS, CommandQueue.Ca
         if (DEBUG) Log.d(TAG, "setHeaderClickable " + clickable);
     }
 
+    /** pd1610 v85: 透传到 QSPanel（S5 双指下拉的「更多控制」网格）。 */
+    @Override
+    public void setS5GridMode(boolean grid) {
+        if (mQSPanel != null) {
+            mQSPanel.setS5GridMode(grid);
+        }
+    }
+
     @Override
     public void setExpanded(boolean expanded) {
         if (DEBUG) Log.d(TAG, "setExpanded " + expanded);
@@ -457,6 +465,11 @@ public class QSFragment extends LifecycleFragment implements QS, CommandQueue.Ca
     @Override
     public void closeDetail() {
         mQSPanel.closeDetail();
+    }
+
+    /** pd1610 v111: 面板收起时兜底退出编辑态（见 QSCustomizer.hideWithoutAnimation）。 */
+    public void hideCustomizer() {
+        mQSCustomizer.hideWithoutAnimation();
     }
 
     public void notifyCustomizeChanged() {

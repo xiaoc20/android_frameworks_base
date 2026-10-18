@@ -105,6 +105,15 @@
         android:textSize="@dimen/pd1610_qs_s5_bottom_bar_text_size"
         android:visibility="gone" />
 
+    <!-- pd1610 v94: 手柄分隔线 —— 线上是通知区，线下这一点才是「上滑收面板」的范围 -->
+    <View
+        android:id="@+id/pd1610_s5_bottom_bar_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_gravity="bottom"
+        android:background="@color/pd1610_qs_s5_bottom_bar_divider"
+        android:visibility="gone" />
+
     <com.android.systemui.statusbar.AlphaOptimizedView
         android:id="@+id/qs_navbar_scrim"
         android:layout_height="96dp"

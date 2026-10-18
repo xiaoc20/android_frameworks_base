@@ -177,6 +177,35 @@ public class QSPanel extends LinearLayout implements Tunable, Callback, Brightne
         }
     }
 
+    /**
+     * pd1610 v85: S5 双指下拉 = 更多控制（全部开关铺成网格）。
+     * 翻这个开关后磁贴会重新排版，QS 容器随之变高，
+     * NotificationPanelView.onLayout 会把 mQsMaxExpansionHeight 重算 ⇒ 面板跟着长高。
+     */
+    /** pd1610 v92: 网格态把亮度条收起来，收回时还原。 */
+    private int mS5BrightnessVisibility = VISIBLE;
+
+    public void setS5GridMode(boolean grid) {
+        if (QsStyle.get(getContext()) != QsStyle.S5) {
+            return;
+        }
+        if (TileLayout.sS5GridMode == grid) {
+            return;
+        }
+        TileLayout.sS5GridMode = grid;
+        // pd1610 v96: 网格态保留亮度条（用户：「把亮度和通知相对的往下推」），
+        // 不再像 v92 那样隐藏它。
+        if (mBrightnessView != null && mS5BrightnessVisibility == GONE) {
+            mBrightnessView.setVisibility(VISIBLE);
+        }
+        android.util.Log.i("pd1610", "S5grid panel=" + grid
+                + " tile=" + (mTileLayout != null));
+        if (mTileLayout != null) {
+            mTileLayout.updateResources();
+        }
+        requestLayout();
+    }
+
     protected void addDivider() {
         mDivider = LayoutInflater.from(mContext).inflate(R.layout.qs_divider, this, false);
         mDivider.setBackgroundColor(Utils.applyAlpha(mDivider.getAlpha(),

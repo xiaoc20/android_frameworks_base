@@ -43,6 +43,7 @@ import com.android.systemui.keyguard.ScreenLifecycle;
 import com.android.systemui.plugins.qs.QS;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.qs.QSDetailClipper;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.qs.QSTileHost;
 import com.android.systemui.statusbar.phone.LightBarController;
 import com.android.systemui.statusbar.phone.NotificationsQuickSettingsContainer;
@@ -127,6 +128,41 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
         mKeyguardMonitor = keyguardMonitor;
         mScreenLifecycle = screenLifecycle;
         updateNavBackDrop(getResources().getConfiguration());
+        // pd1610 v109: S5 样式下把编辑页刷成控制中心同款青底（用户：白色太突兀）
+        if (QsStyle.get(context) == QsStyle.S5) {
+            applyS5Colors();
+        }
+    }
+
+    /**
+     * pd1610 v109: 编辑页配色对齐 S5 控制中心（只换颜色，布局和交互不动）。
+     *  - 页面/工具栏：#006578 青底（和 S5 网格态同色），去掉原生的白色卡片和圆角
+     *  - 标题、返回箭头、⋮ 溢出键：白色
+     *  - 分区标题/提示、分隔线：见 TileAdapter.s5RecolorHeader()
+     */
+    private void applyS5Colors() {
+        final int teal = getContext().getColor(R.color.pd1610_qs_s5_grid_bg);
+        final int white = 0xFFFFFFFF;
+        View container = findViewById(R.id.customize_container);
+        if (container != null) {
+            container.setBackgroundColor(teal);
+        }
+        if (mToolbar != null) {
+            mToolbar.setBackgroundColor(teal);
+            mToolbar.setTitleTextColor(white);
+            android.graphics.drawable.Drawable nav = mToolbar.getNavigationIcon();
+            if (nav != null) {
+                nav = nav.mutate();
+                nav.setTint(white);
+                mToolbar.setNavigationIcon(nav);
+            }
+            android.graphics.drawable.Drawable overflow = mToolbar.getOverflowIcon();
+            if (overflow != null) {
+                overflow = overflow.mutate();
+                overflow.setTint(white);
+                mToolbar.setOverflowIcon(overflow);
+            }
+        }
     }
 
     @Override
@@ -239,6 +275,30 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
 
     public boolean isShown() {
         return isShown;
+    }
+
+    /**
+     * pd1610 v111: 面板被收起时强制退出编辑态（不做动画、不看 isShown 以外的任何条件）。
+     * 原 bug：hide() 只由工具栏返回键调用；面板若自行收起，mCustomizing 永远留在 true，
+     * NotificationPanelView.onTouchEvent 从此恒 return false ⇒ 控制中心再也拉不下来。
+     */
+    public void hideWithoutAnimation() {
+        if (!isShown && !mCustomizing && !mOpening) {
+            return;
+        }
+        if (isShown) {
+            MetricsLogger.hidden(getContext(), MetricsProto.MetricsEvent.QS_EDIT);
+        }
+        isShown = false;
+        mOpening = false;
+        mToolbar.dismissPopupMenus();
+        setCustomizing(false);
+        save();
+        setVisibility(View.GONE);
+        mNotifQsContainer.setCustomizerAnimating(false);
+        mNotifQsContainer.setCustomizerShowing(false);
+        mKeyguardMonitor.removeCallback(mKeyguardCallback);
+        updateNavColors();
     }
 
     private void setCustomizing(boolean customizing) {

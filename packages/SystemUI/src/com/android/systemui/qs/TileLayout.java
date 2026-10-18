@@ -32,6 +32,12 @@ public class TileLayout extends ViewGroup implements QSTileLayout {
     private boolean mListening;
     protected int mMaxAllowedRows = 3;
 
+    /**
+     * pd1610 v85: S5「更多控制」——双指下拉把全部开关铺成网格。
+     * true ⇒ 不再限制一行（原机通知面板才是一行 5 个）。
+     */
+    public static boolean sS5GridMode;
+
     public TileLayout(Context context) {
         this(context, null);
     }
@@ -104,12 +110,14 @@ public class TileLayout extends ViewGroup implements QSTileLayout {
             // 省下来的高度让给亮度条上方的空白
             mCellMarginTop = (int) (12 * res.getDisplayMetrics().density);
         }
+        final int oldMaxRows = mMaxAllowedRows;
         mMaxAllowedRows = Math.max(1, getResources().getInteger(R.integer.quick_settings_max_rows));
         if (QsStyle.get(mContext) == QsStyle.S5) {
-            // S5 原机展开后只有一行 5 个磁贴，其余靠左右翻页
-            mMaxAllowedRows = 1;
+            // S5 原机：通知面板（单指下拉）只有一行 5 个磁贴；
+            // 双指下拉才是全部开关的多行网格（参考逻辑1.png 右半）。
+            mMaxAllowedRows = sS5GridMode ? 8 : 1;
         }
-        if (mColumns != columns) {
+        if (mColumns != columns || oldMaxRows != mMaxAllowedRows) {
             mColumns = columns;
             requestLayout();
             return true;
@@ -161,6 +169,9 @@ public class TileLayout extends ViewGroup implements QSTileLayout {
                 + mCellMarginVertical;
         final int previousRows = mRows;
         mRows = availableHeight / (mCellHeight + mCellMarginVertical);
+        android.util.Log.i("pd1610", "S5grid rows avail=" + availableHeight
+                + " was=" + previousRows + " max=" + mMaxAllowedRows
+                + " grid=" + sS5GridMode);
         if (mRows >= mMaxAllowedRows) {
             mRows = mMaxAllowedRows;
         } else if (mRows <= 1) {

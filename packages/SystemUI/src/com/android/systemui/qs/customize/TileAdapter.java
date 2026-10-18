@@ -73,6 +73,8 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
     private static final int ACTION_MOVE = 2;
 
     private final Context mContext;
+    /** pd1610 v109: S5 样式下分区标题/分隔线要用浅色（编辑页已换成青底）。 */
+    private final boolean mS5;
 
     private final Handler mHandler = new Handler();
     private final List<TileInfo> mTiles = new ArrayList<>();
@@ -95,6 +97,8 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
 
     public TileAdapter(Context context) {
         mContext = context;
+        mS5 = com.android.systemui.qs.QsStyle.get(context)
+                == com.android.systemui.qs.QsStyle.S5;
         mAccessibilityManager = context.getSystemService(AccessibilityManager.class);
         mItemTouchHelper = new ItemTouchHelper(mCallbacks);
         mDecoration = new TileItemDecoration(context);
@@ -241,11 +245,19 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
     @Override
     public void onBindViewHolder(final Holder holder, int position) {
         if (holder.getItemViewType() == TYPE_HEADER) {
+            // pd1610 v109: 青底上原来的次级字色几乎看不见，刷成浅青白
+            if (mS5 && holder.itemView instanceof TextView) {
+                ((TextView) holder.itemView).setTextColor(0xFFB3DDE4);
+            }
             return;
         }
         if (holder.getItemViewType() == TYPE_DIVIDER) {
             holder.itemView.setVisibility(mTileDividerIndex < mTiles.size() - 1 ? View.VISIBLE
                     : View.INVISIBLE);
+            if (mS5) {
+                // pd1610 v109: 半透明白分隔线（深色 holo 分隔线在青底上是一道黑条）
+                holder.itemView.setBackgroundColor(0x33FFFFFF);
+            }
             return;
         }
         if (holder.getItemViewType() == TYPE_EDIT) {
@@ -259,7 +271,11 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
                 titleText = res.getString(R.string.drag_to_remove_tiles);
             }
 
-            ((TextView) holder.itemView.findViewById(android.R.id.title)).setText(titleText);
+            TextView title = (TextView) holder.itemView.findViewById(android.R.id.title);
+            title.setText(titleText);
+            if (mS5) {
+                title.setTextColor(0xFFB3DDE4);
+            }
             return;
         }
         if (holder.getItemViewType() == TYPE_ACCESSIBLE_DROP) {
@@ -528,7 +544,10 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         private final Drawable mDrawable;
 
         private TileItemDecoration(Context context) {
-            mDrawable = context.getDrawable(R.drawable.qs_customize_tile_decoration);
+            // pd1610 v110: S5 样式下这块是暗色蒙版，不是原生的 GM2_grey_100 灰白块
+            mDrawable = mS5
+                    ? new android.graphics.drawable.ColorDrawable(0x1F000000)
+                    : context.getDrawable(R.drawable.qs_customize_tile_decoration);
         }
 
 

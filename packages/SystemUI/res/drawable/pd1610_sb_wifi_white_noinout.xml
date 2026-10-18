@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="0" android:drawable="@drawable/pd1610_sb_wifi_w_0_noinout"/>
+    <item android:maxLevel="1" android:drawable="@drawable/pd1610_sb_wifi_w_1_noinout"/>
+    <item android:maxLevel="2" android:drawable="@drawable/pd1610_sb_wifi_w_2_noinout"/>
+    <item android:maxLevel="3" android:drawable="@drawable/pd1610_sb_wifi_w_3_noinout"/>
+    <item android:maxLevel="4" android:drawable="@drawable/pd1610_sb_wifi_w_4_noinout"/>
+</level-list>

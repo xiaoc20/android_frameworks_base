@@ -16,6 +16,8 @@
   -->
 
 <resources>
+    <!-- pd1610 v87: S5「通知」标题条（QSContainerImpl 里动态创建） -->
+    <item type="id" name="pd1610_s5_notif_bar" />
     <item type="id" name="translation_x_animator_tag"/>
     <item type="id" name="translation_y_animator_tag"/>
     <item type="id" name="translation_z_animator_tag"/>

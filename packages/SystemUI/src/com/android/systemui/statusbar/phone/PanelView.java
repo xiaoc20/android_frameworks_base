@@ -95,6 +95,28 @@ public abstract class PanelView extends FrameLayout {
     private boolean mTouchSlopExceeded;
     private int mTrackingPointer;
     protected int mTouchSlop;
+
+    /**
+     * pd1610 v93: S5 只允许从底栏（「没有服务」那条）上滑收面板。
+     * 返回 true = 这次 DOWN 不在手柄上，面板不许被拖（通知列表照常滚动）。
+     */
+    protected boolean isS5TouchOutsideCloseHandle(float x, float y) {
+        return false;
+    }
+
+    private boolean mS5UpDragBlocked;
+
+    /**
+     * pd1610 v104: 「这次上滑算不算被拦住」改成用到时再算。
+     * 原来只在 DOWN 那一刻算一次并缓存（还要求展开 >= 0.99），
+     * 面板在开合动画尾巴上按下时 fraction 不够 ⇒ 不拦 ⇒ 上滑照样收面板。
+     * 这里用 DOWN 的坐标 + 当前展开比例现算。
+     */
+    protected boolean isS5UpDragBlockedNow() {
+        return mS5UpDragBlocked
+                || (getExpandedFraction() >= 0.5f
+                        && isS5TouchOutsideCloseHandle(mInitialTouchX, mInitialTouchY));
+    }
     protected boolean mHintAnimationRunning;
     private boolean mOverExpandedBeforeFling;
     private boolean mTouchAboveFalsingThreshold;
@@ -359,6 +381,15 @@ public abstract class PanelView extends FrameLayout {
             case MotionEvent.ACTION_MOVE:
                 addMovement(event);
                 float h = y - mInitialTouchY;
+                // pd1610 v93: 不在底栏上的上滑不参与面板拖拽（S5 通知列表只管滚动）。
+                // pd1610 v107: 阈值从 -mTouchSlop 放宽到 0 —— 否则头 32 px 的上移
+                // 仍会走下面的 setExpandedHeightInternal，面板跟着手上抬一小截。
+                if (isS5UpDragBlockedNow() && h < 0) {
+                    if (h < -mTouchSlop) {
+                        android.util.Log.i("pd1610T", "TMOVE blocked h=" + (int) h);
+                    }
+                    return true;
+                }
 
                 // If the panel was collapsed when touching, we only need to check for the
                 // y-component of the gesture, as we have no conflicting horizontal gesture.
@@ -467,6 +498,26 @@ public abstract class PanelView extends FrameLayout {
 
     private void endMotionEvent(MotionEvent event, float x, float y, boolean forceCancel) {
         mTrackingPointer = -1;
+        // pd1610 v104: 上滑早被拦住了、从头到尾没 startTracking，但下面第一层 if 里的
+        //     Math.abs(y - mInitialTouchY) > mTouchSlop
+        // 会让它照样进 fling 分支 ⇒ 松手把面板收掉（用户报的「通知下面上滑还能收」）。
+        // 这次手势既然不许拖面板，UP 就什么都不做。
+        if (useS5PanelPhysics() && isS5UpDragBlockedNow()
+                && y - mInitialTouchY < -mTouchSlop) {
+            android.util.Log.i("pd1610T", "END skip-fling blocked dy=" + (int) (y - mInitialTouchY)
+                    + " tracking=" + mTracking + " frac=" + getExpandedFraction());
+            if (mTracking && getExpandedFraction() < 0.99f) {
+                // 手指按下去时开/合动画还没跑完 ⇒ tracking 已经开始、面板被拖到半路。
+                // 这次上滑不许收，按 S5 规则（松手位置过没过半屏）回到全开。
+                fling(0f, true /* expand */, false /* aboveFalsingThreshold */);
+            }
+            if (mTracking) {
+                onTrackingStopped(true /* expand */);
+            }
+            mVelocityTracker.clear();
+            mPeekTouching = false;
+            return;
+        }
         if ((mTracking && mTouchSlopExceeded)
                 || Math.abs(x - mInitialTouchX) > mTouchSlop
                 || Math.abs(y - mInitialTouchY) > mTouchSlop
@@ -501,6 +552,8 @@ public abstract class PanelView extends FrameLayout {
                 }
             }
 
+            android.util.Log.i("pd1610T", "END fling tracking=" + mTracking
+                    + " vel=" + (int) vel + " dy=" + (int) (y - mInitialTouchY));
             boolean expand = flingExpands(vel, vectorVel, x, y)
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL
                     || forceCancel;
@@ -612,6 +665,14 @@ public abstract class PanelView extends FrameLayout {
                 mInitialTouchY = y;
                 mInitialTouchX = x;
                 mTouchStartedInEmptyArea = !isInContentBounds(x, y);
+                // pd1610 v93: 全展开后、手指又不在底栏上 ⇒ 这次手势不许拖面板。
+                mS5UpDragBlocked = getExpandedFraction() >= 0.5f
+                        && isS5TouchOutsideCloseHandle(x, y);
+                android.util.Log.i("pd1610T", "DOWN x=" + (int) x + " y=" + (int) y
+                        + " frac=" + getExpandedFraction()
+                        + " blocked=" + mS5UpDragBlocked
+                        + " tracking=" + mTracking
+                        + " inEmpty=" + mTouchStartedInEmptyArea);
                 mTouchSlopExceeded = mTouchSlopExceededBeforeDown;
                 mJustPeeked = false;
                 mMotionAborted = false;
@@ -641,7 +702,11 @@ public abstract class PanelView extends FrameLayout {
             case MotionEvent.ACTION_MOVE:
                 final float h = y - mInitialTouchY;
                 addMovement(event);
-                if (scrolledToBottom || mTouchStartedInEmptyArea || mAnimatingOnDown) {
+                android.util.Log.i("pd1610T", "IMOVE h=" + (int) h
+                        + " blocked=" + isS5UpDragBlockedNow()
+                        + " s2b=" + scrolledToBottom);
+                if ((scrolledToBottom || mTouchStartedInEmptyArea || mAnimatingOnDown)
+                        && !isS5UpDragBlockedNow()) {
                     float hAbs = Math.abs(h);
                     if ((h < -mTouchSlop || (mAnimatingOnDown && hAbs > mTouchSlop))
                             && hAbs > Math.abs(x - mInitialTouchX)) {

@@ -58,6 +58,8 @@ public class SectionHeaderView extends ActivatableNotificationView {
     private void bindContents() {
         mLabelView = checkNotNull(findViewById(R.id.header_label));
         mClearAllButton = checkNotNull(findViewById(R.id.btn_clear_all));
+        // pd1610 v126b: 首帧也要按当前 UI 风格着色（原来只有 uiMode 变化时才刷）
+        updateLabelColor();
         if (mOnClearClickListener != null) {
             mClearAllButton.setOnClickListener(mOnClearClickListener);
         }
@@ -91,10 +93,33 @@ public class SectionHeaderView extends ActivatableNotificationView {
     /** Must be called whenever the UI mode changes (i.e. when we enter night mode). */
     void onUiModeChanged() {
         updateBackgroundColors();
-        mLabelView.setTextColor(
-                getContext().getColor(R.color.notification_section_header_label_color));
+        updateLabelColor();
         mClearAllButton.setImageResource(
                 R.drawable.status_bar_notification_section_header_clear_btn);
+    }
+
+    /**
+     * pd1610 v129: 锁屏⇄解锁切换后重套分节头样式（深色卡 + 灰蓝标题）。
+     */
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        // pd1610 v130: 分节头同样是锁屏时建好的，展开 S5 控制中心要补刷标题色
+        updateLabelColor();
+    }
+
+    public void refreshS5Style() {
+        refreshS5BackgroundTint();
+        updateLabelColor();
+    }
+
+    /** pd1610 v126b: S5 深色通知区的分节标题用灰蓝，原生用 GM2_grey_900。 */
+    private void updateLabelColor() {
+        final Context c = getContext();
+        mLabelView.setTextColor(com.android.systemui.qs.QsStyle.get(c)
+                == com.android.systemui.qs.QsStyle.S5
+                ? c.getColor(R.color.pd1610_qs_section_label)
+                : c.getColor(R.color.notification_section_header_label_color));
     }
 
     void setAreThereDismissableGentleNotifs(boolean areThereDismissableGentleNotifs) {

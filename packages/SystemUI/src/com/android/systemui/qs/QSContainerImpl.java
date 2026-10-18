@@ -34,6 +34,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.android.systemui.Pd1610Sui;
 import com.android.systemui.R;
 import com.android.systemui.qs.QsStyle;
 import com.android.systemui.qs.customize.QSCustomizer;
@@ -65,6 +66,9 @@ public class QSContainerImpl extends FrameLayout {
 
     private boolean mLandscape;
     private boolean mHeaderImageEnabled;
+
+    // pd1610 v122: SUI 设置 —— 控制中心顶图
+    private ImageView mSuiQsImage;
 
     // pd1610: 三星 S5 的「通知」分隔条（QS 面板最下面那一条青色标题）
     private View mS5NotifBar;
@@ -104,6 +108,9 @@ public class QSContainerImpl extends FrameLayout {
         }
 
         setupS5NotifBar();
+
+        // pd1610 v122: SUI 设置的外观项（顶图 / 亮度条底色）
+        applySui();
 
         updateResources();
 
@@ -173,11 +180,93 @@ public class QSContainerImpl extends FrameLayout {
         lp.gravity = Gravity.BOTTOM;
         addView(bar, lp);
         mS5NotifBar = bar;
+        bar.setId(R.id.pd1610_s5_notif_bar);
         mS5NotifBar.setVisibility(View.INVISIBLE);
+    }
+
+    /**
+     * pd1610 v122: SUI 设置的外观项。
+     * 顶图垫在 QS 容器最底下（索引 0），只铺到亮度条上沿（见 updateExpansion）；
+     * 有图时把原来那两层青底让开。
+     */
+    private void applySui() {
+        final Context ctx = getContext();
+        if (QsStyle.get(ctx) != QsStyle.S5) {
+            return;
+        }
+        registerSuiObservers();
+        // 亮度条背景色
+        final int brightBg = Pd1610Sui.getColor(ctx, Pd1610Sui.KEY_BRIGHT_BG);
+        if (brightBg != 0) {
+            View bv = mQSPanel.getBrightnessView();
+            if (bv != null) {
+                bv.setBackgroundColor(brightBg);
+            }
+        }
+        // 顶图
+        Drawable image = Pd1610Sui.loadImage(ctx,
+                Pd1610Sui.getString(ctx, Pd1610Sui.KEY_QS_IMAGE));
+        if (image == null) {
+            return;
+        }
+        mSuiQsImage = new ImageView(ctx);
+        mSuiQsImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        mSuiQsImage.setImageDrawable(image);
+        mSuiQsImage.setImportantForAccessibility(
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        addView(mSuiQsImage, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        mBackground.setBackground(null);
+    }
+
+    private boolean mSuiObserverRegistered;
+
+    /** pd1610 v122: 设置里改完图/颜色，控制中心即时跟着变，不用重启 SystemUI。 */
+    private void registerSuiObservers() {
+        if (mSuiObserverRegistered) {
+            return;
+        }
+        mSuiObserverRegistered = true;
+        final android.database.ContentObserver observer =
+                new android.database.ContentObserver(
+                        new android.os.Handler(android.os.Looper.getMainLooper())) {
+                    @Override
+                    public void onChange(boolean selfChange) {
+                        rebuildSui();
+                    }
+                };
+        try {
+            android.content.ContentResolver cr = getContext().getContentResolver();
+            cr.registerContentObserver(android.provider.Settings.System.getUriFor(
+                    Pd1610Sui.KEY_QS_IMAGE), false, observer);
+            cr.registerContentObserver(android.provider.Settings.System.getUriFor(
+                    Pd1610Sui.KEY_BRIGHT_BG), false, observer);
+        } catch (Throwable t) {
+            // 注册失败只影响即时刷新
+        }
+    }
+
+    private void rebuildSui() {
+        if (mSuiQsImage != null) {
+            removeView(mSuiQsImage);
+            mSuiQsImage = null;
+        }
+        mBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
+        View bv = mQSPanel == null ? null : mQSPanel.getBrightnessView();
+        if (bv != null) {
+            bv.setBackground(null);
+        }
+        applySui();
+        updateHeaderVisibility();
+        updateExpansion();
+        requestLayout();
     }
 
     private void updateS5NotifBarVisibility() {
         if (mS5NotifBar == null) return;
+        // pd1610 v98: 网格态也显示「通知」条（v96 起通知区在网格态是保留的，
+        // v87 那条「网格态不显示」随之作废）。
         final boolean show = !mQsDisabled && mQsExpansion > 0.99f
                 && !mQSCustomizer.isCustomizing();
         mS5NotifBar.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
@@ -327,6 +416,18 @@ public class QSContainerImpl extends FrameLayout {
         mQSFooter.setTranslationY(height - mQSFooter.getHeight());
         mBackground.setTop(mQSPanel.getTop());
         mBackground.setBottom(height);
+        // pd1610 v122: SUI 顶图铺到「亮度条上沿」为止
+        if (mSuiQsImage != null) {
+            int bottom = mQSPanel.getTop();
+            View bv = mQSPanel.getBrightnessView();
+            if (bv != null && bv.getVisibility() == View.VISIBLE) {
+                bottom += bv.getTop();
+            }
+            mSuiQsImage.setLeft(0);
+            mSuiQsImage.setRight(getWidth());
+            mSuiQsImage.setTop(0);
+            mSuiQsImage.setBottom(Math.min(bottom, height));
+        }
     }
 
     protected int calculateContainerHeight() {
@@ -382,12 +483,18 @@ public class QSContainerImpl extends FrameLayout {
     private void updateHeaderVisibility() {
         boolean hideGradient = (QsStyle.get(getContext()) == QsStyle.TOUCHWIZ || QsStyle.get(getContext()) == QsStyle.S5)
                 || mLandscape || mHeaderImageEnabled || mQsDisabled;
-        boolean hideStatusbar = mLandscape && !mHeaderImageEnabled;
+        // pd1610 v83: 横屏藏「状态栏底」是 AOSP 给 544dp 窄列用的；S5 横屏整宽，
+        // 藏掉后顶部整条透明（用户：「顶部怎么是透明的」）⇒ S5 下横屏也保留。
+        boolean hideStatusbar = mLandscape && !mHeaderImageEnabled
+                && QsStyle.get(getContext()) != QsStyle.S5;
 
         mBackgroundImage.setVisibility(mHeaderImageEnabled ? View.VISIBLE : View.GONE);
         mBackgroundGradient.setVisibility(hideGradient ? View.INVISIBLE : View.VISIBLE);
         if (QsStyle.get(getContext()) == QsStyle.S5) {
-            mStatusBarBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
+            // pd1610 v122: 放了顶图就别再盖青底，否则顶部 39dp 那块还是纯色
+            mStatusBarBackground.setBackgroundColor(mSuiQsImage != null
+                    ? android.graphics.Color.TRANSPARENT
+                    : getContext().getColor(R.color.pd1610_qs_panel_bg));
         } else if (QsStyle.get(getContext()) == QsStyle.TOUCHWIZ) {
             mStatusBarBackground.setBackgroundColor(0xFF000000);
         } else {

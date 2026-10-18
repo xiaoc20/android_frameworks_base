@@ -401,8 +401,14 @@ public class NotificationChildrenContainer extends ViewGroup {
     }
 
     private View inflateDivider() {
-        return LayoutInflater.from(mContext).inflate(
+        final View v = LayoutInflater.from(mContext).inflate(
                 R.layout.notification_children_divider, this, false);
+        // pd1610 v126b: 深色通知区里的分组分隔线用浅色（资源是全局的，不能改死）
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5) {
+            v.setBackgroundColor(mContext.getColor(R.color.pd1610_qs_notif_divider));
+        }
+        return v;
     }
 
     public List<ExpandableNotificationRow> getNotificationChildren() {

@@ -48,6 +48,9 @@ public interface QS extends FragmentBase {
     boolean isCustomizing();
     void setOverscrolling(boolean overscrolling);
     void setExpanded(boolean qsExpanded);
+
+    /** pd1610 v85: S5 双指下拉的「更多控制」网格开关（默认空实现）。 */
+    default void setS5GridMode(boolean grid) {}
     void setListening(boolean listening);
     boolean isShowingDetail();
     void closeDetail();

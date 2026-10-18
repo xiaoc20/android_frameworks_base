@@ -181,10 +181,36 @@ public class BatteryMeterView extends LinearLayout implements
                 == com.android.systemui.qs.QsStyle.S5;
         if (mS5Battery) {
             mUseCustomDrawable = true;
-            mCustomNormalDrawable[0] = context.getDrawable(R.drawable.pd1610_s5_battery);
-            mCustomChargingDrawable[0] =
-                    context.getDrawable(R.drawable.pd1610_s5_battery_charging);
-            mCustomPowersaveDrawable[0] = context.getDrawable(R.drawable.pd1610_s5_battery);
+            // pd1610 v116: 三档样式（设置 > 状态栏 > 状态栏图标颜色），默认「经典」。
+            int style = Pd1610StatusBarIcons.get(context);
+            final int normal;
+            final int charging;
+            switch (style) {
+                case Pd1610StatusBarIcons.GREEN:
+                    normal = R.drawable.pd1610_sb_battery_green;
+                    charging = R.drawable.pd1610_sb_battery_green_charging;
+                    break;
+                case Pd1610StatusBarIcons.WHITE:
+                    normal = R.drawable.pd1610_sb_battery_white;
+                    charging = R.drawable.pd1610_sb_battery_white_charging;
+                    break;
+                case Pd1610StatusBarIcons.FLAT_GREEN:
+                    normal = R.drawable.pd1610_sb_battery_flatgreen;
+                    charging = R.drawable.pd1610_sb_battery_flatgreen_charging;
+                    break;
+                case Pd1610StatusBarIcons.FLAT_WHITE:
+                    normal = R.drawable.pd1610_sb_battery_flatwhite;
+                    charging = R.drawable.pd1610_sb_battery_flatwhite_charging;
+                    break;
+                case Pd1610StatusBarIcons.CLASSIC:
+                default:
+                    normal = R.drawable.pd1610_s5_battery;
+                    charging = R.drawable.pd1610_s5_battery_charging;
+                    break;
+            }
+            mCustomNormalDrawable[0] = context.getDrawable(normal);
+            mCustomChargingDrawable[0] = context.getDrawable(charging);
+            mCustomPowersaveDrawable[0] = context.getDrawable(normal);
         }
 
         mSettingObserver = new SettingObserver(new Handler(context.getMainLooper()));

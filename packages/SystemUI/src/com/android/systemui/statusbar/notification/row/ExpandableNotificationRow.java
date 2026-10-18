@@ -587,6 +587,11 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         }
     }
 
+    /** pd1610 v126/v128: 锁屏⇄解锁切换后重算通知卡底色（S5 深青 / 原生白）。 */
+    public void updateS5BackgroundColors() {
+        refreshS5BackgroundTint();
+    }
+
     /** Called when the notification's ranking was changed (but nothing else changed). */
     public void onNotificationRankingUpdated() {
         if (mMenuRow != null) {

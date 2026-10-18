@@ -6,6 +6,11 @@
     <color name="pd1610_qs_panel_bg">#ff006578</color>
     <!-- 通知区底色（S5 = #001c27） -->
     <color name="pd1610_qs_notif_bg">#ff001c27</color>
+    <!-- v126b: S5 深色通知区的分组分隔线 / 分节标题 -->
+    <color name="pd1610_qs_notif_divider">#26ffffff</color>
+    <color name="pd1610_qs_section_label">#ff9eb6c0</color>
+    <!-- pd1610 v92: S5 网格（双指下拉 / flip settings）整块青底，取自参考图/实机采样 #006578 -->
+    <color name="pd1610_qs_s5_grid_bg">#ff006578</color>
     <!-- 方块圆底（S5 开/关都是这个深青） -->
     <color name="pd1610_qs_tile_bg">#ff014753</color>
     <!-- 图标：开 / 关 / 不可用 -->
@@ -40,7 +45,10 @@
     <!-- 底栏（面板最下面一条运营商名）：颜色/字号按 参考逻辑1.png 底部采样 -->
     <color name="pd1610_qs_s5_bottom_bar_bg">#ff001c27</color>
     <color name="pd1610_qs_s5_bottom_bar_text">#ffffffff</color>
+    <color name="pd1610_qs_s5_bottom_bar_divider">#33ffffff</color>
     <dimen name="pd1610_qs_s5_bottom_bar_height">48dp</dimen>
+    <!-- pd1610 v94: 上滑收面板的手柄高度（分隔线以下这一段） -->
+    <dimen name="pd1610_qs_s5_bottom_handle_height">57dp</dimen>
     <dimen name="pd1610_qs_s5_bottom_bar_text_size">13sp</dimen>
 
     <!-- 原包：时钟 28sp、日期 13sp、时钟左边距 13dp -->

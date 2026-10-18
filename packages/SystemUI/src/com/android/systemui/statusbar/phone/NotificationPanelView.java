@@ -96,6 +96,7 @@ import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
 import com.android.systemui.statusbar.notification.row.ExpandableView;
 import com.android.systemui.statusbar.notification.stack.AnimationProperties;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout;
+import com.android.systemui.statusbar.notification.stack.SectionHeaderView;
 import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
 import com.android.systemui.statusbar.policy.ConfigurationController;
 import com.android.systemui.statusbar.policy.KeyguardMonitor;
@@ -287,6 +288,15 @@ public class NotificationPanelView extends PanelView implements
     private boolean mS5LastStyled;
     // pd1610 v66: 底栏（面板最下面一条运营商名）
     private TextView mS5BottomBar;
+    /** pd1610 v112: 编辑页打开时，白线以下的「返回」手势状态。 */
+    private boolean mS5CusBackArmed;
+    private float mS5CusBackX;
+    private float mS5CusBackY;
+    /** pd1610 v94: 手柄分隔线 + 手柄顶 y（分隔线所在位置）。 */
+    private android.view.View mS5BarDivider;
+    private int mS5HandleTop;
+    /** pd1610 v95: 分隔线以上的那截高度（= barH - handleH），给文字当 padTop。 */
+    private int mS5StripHandle;
     // pd1610 v67: 几何日志去重（v68：按几何四元组去重，布局一变就再打）
     private int mS5LoggedBarH = -1;
     private String mS5LoggedKey;
@@ -311,6 +321,16 @@ public class NotificationPanelView extends PanelView implements
     // Used for two finger gesture as well as accessibility shortcut to QS.
     private boolean mQsExpandImmediate;
     private boolean mTwoFingerQsExpandPossible;
+    /** pd1610 v85: S5「更多控制」网格是否打开（双指下拉 / 头部宫格键）。 */
+    private boolean mS5GridMode;
+    /** pd1610 v86: 完全展开后再下拉 = 切换「更多设置开关」网格。 */
+    private boolean mS5PullTracking;
+    private boolean mS5PullInQsArea;
+    private int mS5PullFingers;
+    private float mS5PullDownX;
+    private float mS5PullDownY;
+    /** pd1610 v89: 本次手势已经用来切换网格，onTouchEvent 必须整段吞掉。 */
+    private boolean mS5SwipeConsumed;
 
     /**
      * If we are in a panel collapsing motion, we reset scrollY of our scroll view but still
@@ -548,6 +568,7 @@ public class NotificationPanelView extends PanelView implements
             mNotificationStackScroller.setBackgroundColor(
                     mContext.getColor(R.color.pd1610_qs_notif_bg));
             mS5BottomBar = findViewById(R.id.pd1610_s5_bottom_bar);
+            mS5BarDivider = findViewById(R.id.pd1610_s5_bottom_bar_divider);
             updateS5BottomBar();
             // pd1610 v67: 布局稳定后核一次几何（底栏必须正好压在
             // 「通知区下沿 → 窗口底」这条带上）
@@ -1113,6 +1134,10 @@ public class NotificationPanelView extends PanelView implements
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
+        // pd1610 v112: 编辑页打开时，白线以下区域上滑/点按 = 返回（退出编辑页）。
+        if (handleS5CustomizeBack(event)) {
+            return true;
+        }
         if (mBlockTouches || mQsFullyExpanded && mQs.onInterceptTouchEvent(event)) {
             return false;
         }
@@ -1136,7 +1161,173 @@ public class NotificationPanelView extends PanelView implements
         if (!isFullyCollapsed() && onQsIntercept(event)) {
             return true;
         }
+        // pd1610 v86: S5「完全进控制中心之后再下拉」——见 handleS5PullIntercept。
+        if (handleS5PullIntercept(event)) {
+            return true;
+        }
         return super.onInterceptTouchEvent(event);
+    }
+
+    /**
+     * pd1610 v86: S5 的「更多设置开关」入口。
+     *
+     * 原机是 QuickSettingPanel.setSingleLine(false)：面板展开后再拉一把，把全部开关铺成
+     * 网格（参考逻辑1.png 右半）。本树 S5 样式下 shouldQuickSettingsIntercept() 恒 false，
+     * QS 区没有任何手势入口，所以在拦截层自己做：
+     *   - 只有在【完全展开】（fraction == 1、普通控制中心）时才登记；
+     *   - 单指落点必须在 QS 区（磁贴 + 亮度）内，不抢通知列表的滚动；
+     *   - 双指（第二根手指随便落在哪）和原生双指开 QS 是同一个语义；
+     *   - 向下拉超过 24dp 且明显是竖划 ⇒ 切换网格，并吃掉后续事件直到抬手。
+     */
+    /**
+     * pd1610 v113: 编辑页打开后，白线（底栏分隔线）以下区域上滑 = 收控制中心。
+     * 语义和普通控制中心的上滑收面板一致，只是编辑态要先退出（否则触摸被屏蔽）。
+     * 白线以上的磁贴列表区不参与，列表照常滚动。
+     */
+    private boolean handleS5CustomizeBack(MotionEvent event) {
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                != com.android.systemui.qs.QsStyle.S5) {
+            mS5CusBackArmed = false;
+            return false;
+        }
+        if (mQs == null || !mQs.isCustomizing()
+                || mS5BottomBar == null || mS5BottomBar.getVisibility() != View.VISIBLE) {
+            mS5CusBackArmed = false;
+            return false;
+        }
+        final int action = event.getActionMasked();
+        final float x = event.getX();
+        final float y = event.getY();
+        if (action == MotionEvent.ACTION_DOWN) {
+            final int handleTop = mS5HandleTop > 0 ? mS5HandleTop : mS5BottomBar.getTop();
+            mS5CusBackArmed = y >= handleTop;
+            mS5CusBackX = x;
+            mS5CusBackY = y;
+            return false;
+        }
+        if (!mS5CusBackArmed) {
+            return false;
+        }
+        switch (action) {
+            case MotionEvent.ACTION_MOVE: {
+                final float dy = y - mS5CusBackY;
+                final float dx = x - mS5CusBackX;
+                if (dy < -mTouchSlop && Math.abs(dy) > Math.abs(dx)) {
+                    mS5CusBackArmed = false;
+                    mS5SwipeConsumed = true;
+                    // v113: 先退出编辑态（清掉 onTouchEvent 的拦截），再把整个控制中心收起来。
+                    backFromCustomizer();
+                    mStatusBar.animateCollapsePanels();
+                    return true;
+                }
+                break;
+            }
+            case MotionEvent.ACTION_CANCEL:
+                mS5CusBackArmed = false;
+                break;
+        }
+        return false;
+    }
+
+    private void backFromCustomizer() {
+        if (mQs instanceof QSFragment) {
+            ((QSFragment) mQs).hideCustomizer();
+        }
+    }
+
+    private boolean handleS5PullIntercept(MotionEvent event) {
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                != com.android.systemui.qs.QsStyle.S5) {
+            mS5PullTracking = false;
+            return false;
+        }
+        final int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            mS5PullTracking = mBarState == StatusBarState.SHADE
+                    && getExpandedFraction() >= 0.99f;
+            mS5PullInQsArea = isInS5QsArea(mDownX, mDownY);
+            mS5PullFingers = 1;
+            mS5SwipeConsumed = false;
+            mS5PullDownX = mDownX;
+            mS5PullDownY = mDownY;
+            return false;
+        }
+        if (!mS5PullTracking) {
+            return false;
+        }
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            mS5PullFingers = event.getPointerCount();
+            return false;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            final float dy = event.getY() - mS5PullDownY;
+            final float dx = Math.abs(event.getX() - mS5PullDownX);
+            final float slop = 24 * getResources().getDisplayMetrics().density;
+            if (dy > slop && dy > dx) {
+                // 单指：QS 区随便拉；通知区只有在列表已经到顶（再往下拉本来也没动作）时才认。
+                if (!mS5PullInQsArea && mS5PullFingers < 2
+                        && !mNotificationStackScroller.isScrolledToTop()) {
+                    return false;
+                }
+                mS5PullTracking = false;
+                if (!mS5GridMode) {
+                    android.util.Log.i("pd1610", "S5pull on fingers=" + mS5PullFingers
+                            + " inQs=" + mS5PullInQsArea + " dy=" + (int) dy);
+                    setS5GridMode(true);
+                }
+                mS5SwipeConsumed = true;
+                return true;
+            }
+            if (dy < -slop && -dy > dx) {
+                // pd1610 v91: 网格态下通知列表已经滑走、下半屏是空的，没有滚动冲突
+                // ⇒ 不分落点、不分手指数，上滑一律只收网格。绝不再把整个控制中心收掉。
+                mS5PullTracking = false;
+                // pd1610 v96: 网格态下通知列表又回来了 ⇒ 上滑收网格只认 QS 区起手，
+                // 通知区里的上滑照常交给列表滚动。
+                if (mS5GridMode && (mS5PullInQsArea || mS5PullFingers >= 2)) {
+                    android.util.Log.i("pd1610", "S5pull off fingers=" + mS5PullFingers
+                            + " inQs=" + mS5PullInQsArea + " dy=" + (int) dy);
+                    setS5GridMode(false);
+                    mS5SwipeConsumed = true;
+                    return true;
+                }
+                return false;
+            }
+            return false;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            mS5PullTracking = false;
+        }
+        return false;
+    }
+
+    /**
+     * pd1610 v93: 面板全展开时，只有底栏（「没有服务」那一条）能当上滑收面板的手柄。
+     * S5 原机 PanelView.onFinishInflate 只给 @id/handle 挂拖拽监听，通知列表只管滚动。
+     */
+    @Override
+    protected boolean isS5TouchOutsideCloseHandle(float x, float y) {
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                != com.android.systemui.qs.QsStyle.S5) {
+            return false;
+        }
+        if (mBarState != StatusBarState.SHADE
+                || mS5BottomBar == null
+                || mS5BottomBar.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+        final int handleTop = mS5HandleTop > 0 ? mS5HandleTop
+                : mS5BottomBar.getTop();
+        return y < handleTop;
+    }
+
+    /** pd1610 v86: 手指是不是落在 QS 块（头部 + 磁贴 + 亮度）里。 */
+    private boolean isInS5QsArea(float x, float y) {
+        if (mQs == null || mQs.getView() == null) {
+            return false;
+        }
+        final android.view.View v = mQs.getView();
+        return y >= 0 && y <= v.getTop() + v.getHeight();
     }
 
     private boolean onQsIntercept(MotionEvent event) {
@@ -1314,8 +1505,31 @@ public class NotificationPanelView extends PanelView implements
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (mBlockTouches || (mQs != null && mQs.isCustomizing())) {
+        // pd1610 v89: 这个手势已经用来切网格了。拦截之后事件会转到本方法，
+        // 不在这里拦住的话面板会继续当拖拽处理：
+        //   上滑 ⇒ 收起整个控制中心（用户：「不该动的」）；
+        //   下滑 ⇒ onHeightUpdated 按 expandedHeight 重摆底栏（「底栏跑到我手上」）。
+        if (mS5SwipeConsumed) {
+            final int a = event.getActionMasked();
+            if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                mS5SwipeConsumed = false;
+            }
+            return true;
+        }
+        if (mBlockTouches) {
             return false;
+        }
+        if (mQs != null && mQs.isCustomizing()) {
+            // pd1610 v111: 面板已经全收起却还挂着「编辑中」＝状态泄漏（见
+            // QSCustomizer.hideWithoutAnimation 的注释）。就地清掉再放行，
+            // 不然这里会永远 return false，控制中心再也拉不下来。
+            if (isFullyCollapsed()) {
+                if (mQs instanceof QSFragment) {
+                    ((QSFragment) mQs).hideCustomizer();
+                }
+            } else {
+                return false;
+            }
         }
 
         // Do not allow panel expansion if bouncer is scrimmed, otherwise user would be able to
@@ -1404,10 +1618,21 @@ public class NotificationPanelView extends PanelView implements
         if (action == MotionEvent.ACTION_DOWN && isFullyCollapsed()
                 && mQsExpansionEnabled) {
             mTwoFingerQsExpandPossible = true;
+            // pd1610 v85: 每次新下拉先回到「通知面板」（一行磁贴）；
+            // 真放上第二根手指时再切「更多控制」。
+            if (com.android.systemui.qs.QsStyle.get(mContext)
+                    == com.android.systemui.qs.QsStyle.S5) {
+                setS5GridMode(false);
+            }
         }
         if (mTwoFingerQsExpandPossible && isOpenQsEvent(event)
                 && event.getY(event.getActionIndex()) < mStatusBarMinHeight) {
             MetricsLogger.count(mContext, COUNTER_PANEL_OPEN_QS, 1);
+            // pd1610 v85: 双指下拉 = S5 的「更多控制」——全部开关铺开成网格
+            if (com.android.systemui.qs.QsStyle.get(mContext)
+                    == com.android.systemui.qs.QsStyle.S5) {
+                setS5GridMode(true);
+            }
             mQsExpandImmediate = true;
             mNotificationStackScroller.setShouldShowShelfOnly(true);
             requestPanelHeightUpdate();
@@ -1926,8 +2151,14 @@ public class NotificationPanelView extends PanelView implements
         //  1) 锁屏不显示控制中心：原生会把 QS 拉出来，于是整块控制中心挂在锁屏上。
         //     S5 原机锁屏只有通知 ⇒ KEYGUARD 下关掉 QS 展开并把高度收回 0。
         //  2) 「通知」条下面那层深色底只在解锁态画，锁屏上画了就是糊住壁纸的残留。
-        if (com.android.systemui.qs.QsStyle.get(mContext)
-                == com.android.systemui.qs.QsStyle.S5) {
+        final boolean s5 = com.android.systemui.qs.QsStyle.get(mContext)
+                == com.android.systemui.qs.QsStyle.S5;
+        // pd1610 v128: 通知行在 inflate 线程上判不了状态，这里（主线程）把
+        // 「是不是 S5 控制中心」缓存起来给 ActivatableNotificationView 读。
+        com.android.systemui.qs.QsStyle.setS5ShadeActive(s5
+                && (mBarState == StatusBarState.SHADE
+                        || mBarState == StatusBarState.SHADE_LOCKED));
+        if (s5) {
             final boolean kg = mBarState == StatusBarState.KEYGUARD;
             // 3) 通知行样式：锁屏要原生，解锁后的控制中心才是 S5 深色紧凑行。
             //    行是 inflate 时套上的，状态切换没人重刷 ⇒ 这里自己收/放一遍。
@@ -1991,10 +2222,16 @@ public class NotificationPanelView extends PanelView implements
             if (mS5BottomBar.getVisibility() != View.GONE) {
                 mS5BottomBar.setVisibility(View.GONE);
             }
+            if (mS5BarDivider != null && mS5BarDivider.getVisibility() != View.GONE) {
+                mS5BarDivider.setVisibility(View.GONE);
+            }
             return;
         }
         if (mS5BottomBar.getVisibility() != View.VISIBLE) {
             mS5BottomBar.setVisibility(View.VISIBLE);
+        }
+        if (mS5BarDivider != null && mS5BarDivider.getVisibility() != View.VISIBLE) {
+            mS5BarDivider.setVisibility(View.VISIBLE);
         }
         final int w = getWidth();
         final int h = getHeight();
@@ -2013,12 +2250,63 @@ public class NotificationPanelView extends PanelView implements
         // 所以拖到一半时它就在半屏处跟着手指走；钉死在屏幕底只会被 dispatchDraw 的
         // clipRect 裁掉 —— 那就是「消失了部分界面」。
         final int edge = s5BottomBarEdge(h);
-        final int barH = strip > 0 ? strip : mS5BottomBar.getHeight();
-        mS5BottomBar.layout(0, edge - barH, w, edge);
-        if (strip != mS5Strip) {
-            mS5Strip = strip;
-            // 文字压到下半个：padding-top = strip/2
-            mS5BottomBar.setPadding(0, strip / 2, 0, 0);
+        // pd1610 v100: 手柄 = 白线以下整块。线画在 edge - handleH，
+        // 底栏文字的 bounds 也从这条线开始 —— gravity=center 就自然居中在
+        // 「白线下方整个区域」的中间（用户原话）。
+        final int handleH = getResources().getDimensionPixelSize(
+                R.dimen.pd1610_qs_s5_bottom_handle_height);
+        // pd1610 v108: 底栏高度恒 = 手柄高度。原来取 strip（窗口高 - 通知列表高），
+        // 而下面的 bottomMargin 又跟着 mS5HandleTop 变 ⇒ 拉到半屏时 strip 涨到 1300+，
+        // 底栏被撑成一整条大黑块（用户：「慢慢滑到屏幕中间的时候不对了」）。
+        final int barH = Math.max(handleH, 1);
+        mS5HandleTop = Math.max(0, edge - barH);
+        // pd1610 v102: 通知列表下沿顶到白线（用户：「把通知的范围调到白线上面，
+        // 这样不留空」）。父容器底是 displayH，不是窗口底，所以要减掉导航条那截。
+        // pd1610 v108: 这里恒按【全开时】的白线算（h - 228），不跟手指变 ——
+        // 否则 margin 和 strip 互相喂，底栏高度会自己涨。
+        final int fullHandleTop = Math.max(0, h - barH);
+        final int wantedBm = Math.max(0,
+                getResources().getDisplayMetrics().heightPixels - fullHandleTop);
+        final android.view.ViewGroup.LayoutParams slp =
+                mNotificationStackScroller.getLayoutParams();
+        if (slp instanceof android.view.ViewGroup.MarginLayoutParams) {
+            final android.view.ViewGroup.MarginLayoutParams mlp =
+                    (android.view.ViewGroup.MarginLayoutParams) slp;
+            if (mlp.bottomMargin != wantedBm) {
+                mlp.bottomMargin = wantedBm;
+                mNotificationStackScroller.setLayoutParams(mlp);
+            }
+        }
+        final int barTop = Math.min(edge - barH, mS5HandleTop);
+        // pd1610 v101: TextView 的 Layout 是 measure 时算好的，直接 layout() 不会
+        // 重算 ⇒ gravity=center 落不到新高度上（文字顶在线下面）。先 measure 再 layout。
+        final int barHeight = Math.max(0, edge - barTop);
+        if (mS5BottomBar.getMeasuredHeight() != barHeight
+                || mS5BottomBar.getMeasuredWidth() != w) {
+            mS5BottomBar.measure(
+                    android.view.View.MeasureSpec.makeMeasureSpec(
+                            w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(
+                            barHeight, android.view.View.MeasureSpec.EXACTLY));
+        }
+        mS5BottomBar.layout(0, barTop, w, edge);
+        if (mS5BarDivider != null) {
+            mS5BarDivider.layout(0, mS5HandleTop, w, mS5HandleTop + 2);
+        }
+        mS5StripHandle = 0;
+        // pd1610 v84: 文字必须落在【可视高度】里。
+        // 原来 padding-top = strip/2 把文字压到 strip 的下半格：竖屏中心 2512、
+        // 横屏 1392。但状态栏窗口的可视底只到 displayMetrics.heightPixels
+        // （不含导航条：竖屏 2496 / 横屏 1376）⇒ 横屏那行「没有服务」被导航条
+        // 压掉下半截（用户截图）。改成在可视区里居中：底部留出导航条高度。
+        mS5Strip = barH;
+        final int visBottom = Math.min(edge,
+                getResources().getDisplayMetrics().heightPixels);
+        final int visH = Math.max(0, visBottom - (edge - barH));
+        // pd1610 v100: 不再用 padding 把文字往上顶 —— 居中由 bounds 决定。
+        if (mS5BottomBar.getPaddingTop() != 0
+                || mS5BottomBar.getPaddingBottom() != 0) {
+            mS5BottomBar.setPadding(0, 0, 0, 0);
         }
         logS5Geometry();
     }
@@ -2030,6 +2318,8 @@ public class NotificationPanelView extends PanelView implements
      * ⇒ 全展开直接铺到窗口最底。
      */
     private int s5BottomBarEdge(int h) {
+        // pd1610 v104: 底栏跟着面板下沿一起走（用户：「它本来就该跟面板下沿一起走」）。
+        // 全展开时钉窗口底 —— 面板最大高度比窗口少一条导航栏，不能停在 2496。
         if (getExpandedHeight() >= getMaxPanelHeight() - 0.5f) {
             return h;
         }
@@ -2049,12 +2339,26 @@ public class NotificationPanelView extends PanelView implements
         if (w <= 0 || h <= 0) {
             return;
         }
-        int barH = mS5Strip > 0 ? mS5Strip : mS5BottomBar.getHeight();
-        if (barH <= 0) {
-            barH = 192;
-        }
         final int edge = s5BottomBarEdge(h);
-        mS5BottomBar.layout(0, edge - barH, w, edge);
+        // pd1610 v108: 和 layoutS5BottomBar 一样，高度恒 = 手柄高度（见那里的注释）。
+        final int handleH = getResources().getDimensionPixelSize(
+                R.dimen.pd1610_qs_s5_bottom_handle_height);
+        final int barH = Math.max(handleH, 1);
+        mS5HandleTop = Math.max(0, edge - barH);
+        final int barTop2 = Math.min(edge - barH, mS5HandleTop);
+        final int barHeight2 = Math.max(0, edge - barTop2);
+        if (mS5BottomBar.getMeasuredHeight() != barHeight2
+                || mS5BottomBar.getMeasuredWidth() != getWidth()) {
+            mS5BottomBar.measure(
+                    android.view.View.MeasureSpec.makeMeasureSpec(
+                            getWidth(), android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(
+                            barHeight2, android.view.View.MeasureSpec.EXACTLY));
+        }
+        mS5BottomBar.layout(0, barTop2, getWidth(), edge);
+        if (mS5BarDivider != null) {
+            mS5BarDivider.layout(0, mS5HandleTop, w, mS5HandleTop + 2);
+        }
     }
 
     /** pd1610 v67: 打印一次 S5 控制中心的几何真值（只有几何变化时才打）。 */
@@ -2153,12 +2457,18 @@ public class NotificationPanelView extends PanelView implements
             View child = mNotificationStackScroller.getChildAt(i);
             if (child instanceof ExpandableNotificationRow) {
                 restyleS5Row((ExpandableNotificationRow) child);
+            } else if (child instanceof SectionHeaderView) {
+                // pd1610 v129: 「无声通知」分节头也是 ActivityNotificationView 的子类，
+                // 不跟着刷就会留一块白卡在深色通知区里。
+                ((SectionHeaderView) child).refreshS5Style();
             }
         }
     }
 
     /** pd1610 v56: 分组里的子行不在 NSL 的直接子视图里，必须跟着父行走一遍。 */
     private void restyleS5Row(ExpandableNotificationRow row) {
+        // pd1610 v126: 解锁/锁屏切换后卡片底色也要跟着换（S5 深青 ⇄ 原生白）
+        row.updateS5BackgroundColors();
         com.android.systemui.statusbar.notification.row.PdS5NotifStyle
                 .apply(row.getPrivateLayout());
         com.android.systemui.statusbar.notification.row.PdS5NotifStyle
@@ -2498,8 +2808,10 @@ public class NotificationPanelView extends PanelView implements
             // 原生公式在 QS 展开时只算到「QS 高 + 通知列表高」，拖到底会剩半屏。
             // pd1610: 面板铺满整屏 —— 底下 navigation_bar_height 那条留空区
             // 也要归控制中心（那里是唯一起作用「上滑收起」的地方）。
-            maxHeight = Math.max(calculatePanelHeightQsExpanded(),
-                    mContext.getResources().getDisplayMetrics().heightPixels);
+            // pd1610 v88: 原机 PanelView.onMeasure 就是 setMeasuredDimension(..., mExpandedHeight)，
+            // 面板高度恒等于屏幕。这里若让 QS 变高去抬 maxPanelHeight，网格一铺开面板就会
+            // 重新算高度并整块重播展开动画（用户：「点哪都乱复位」「下面透明」）。
+            maxHeight = mContext.getResources().getDisplayMetrics().heightPixels;
         } else if (mQsExpandImmediate || mQsExpanded
                 || mIsExpanding && mQsExpandedWhenExpandingStarted
                 || mPulsing) {
@@ -2862,6 +3174,88 @@ public class NotificationPanelView extends PanelView implements
         }
     }
 
+    /** pd1610 v85: 切换 S5「更多控制」网格（磁贴多行 ⇄ 一行 5 个）。 */
+    private void setS5GridMode(boolean grid) {
+        if (com.android.systemui.qs.QsStyle.get(mContext)
+                != com.android.systemui.qs.QsStyle.S5) {
+            return;
+        }
+        if (mS5GridMode == grid) {
+            return;
+        }
+        mS5GridMode = grid;
+        android.util.Log.i("pd1610", "S5grid npv=" + grid);
+        // pd1610 v96: 网格态不再滑走通知列表、不再隐藏「通知」条、不再铺青底
+        // （用户：「拉开网格态之后把亮度和通知相对的往下推就好了」）。
+        // 现在网格态只做一件事：磁贴变多 ⇒ QS 块变高 ⇒ 亮度/通知自然被推下去。
+        if (mQs != null) {
+            mQs.setS5GridMode(grid);
+        }
+        // pd1610 v88: 绝不再调 requestPanelHeightUpdate()（它会 setExpandedHeight ⇒ 整块重播）。
+        // 只等这一帧布局完，把 QS 重新钉到新的内容高度。
+        post(new Runnable() {
+            @Override
+            public void run() {
+                if (mQsMaxExpansionHeight > 0) {
+                    setQsExpansion(mQsMaxExpansionHeight);
+                }
+            }
+        });
+        // pd1610 v96: 不再有「通知整体滑出」的翻转动画 —— 通知是被 QS 变高推下去的。
+    }
+
+    /**
+     * pd1610 v87: S5 的翻转动画。
+     * 原机 PhoneStatusBar.flipToSettings()：通知那块（mScrollView）用
+     * 200 ms + ACCELERATE 整体往下滑出 displayHeight；回来时 DECELERATE。
+     * 网格是瞬间铺开/收回的（mQSPanel.setSingleLine），滑的只有通知那块。
+     */
+    private void animateS5Flip(final boolean grid) {
+        final android.view.View stack = mNotificationStackScroller;
+        if (stack == null) {
+            return;
+        }
+        stack.animate().cancel();
+        final int h = Math.max(stack.getHeight(), getHeight());
+        if (grid) {
+            stack.setVisibility(android.view.View.VISIBLE);
+            stack.animate()
+                    .translationY(h)
+                    .setDuration(200)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                    .withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (mS5GridMode) {
+                                stack.setVisibility(android.view.View.INVISIBLE);
+                            }
+                        }
+                    })
+                    .start();
+        } else {
+            stack.setVisibility(android.view.View.VISIBLE);
+            stack.setTranslationY(h);
+            stack.animate()
+                    .translationY(0)
+                    .setDuration(200)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!mS5GridMode) {
+                                final android.view.View container =
+                                        findViewById(R.id.notification_container_parent);
+                                if (container != null) {
+                                    container.setBackgroundColor(
+                                            android.graphics.Color.TRANSPARENT);
+                                }
+                            }
+                        }
+                    })
+                    .start();
+        }
+    }
+
     private void setListening(boolean listening) {
         mKeyguardStatusBar.setListening(listening);
         if (mQs == null) return;
@@ -2901,8 +3295,12 @@ public class NotificationPanelView extends PanelView implements
             // pd1610: S5 的 QS 恒「全展开」⇒ 原生这段每次下拉都会把通知收进 shelf
             // （现场就是一堆图标挤在「通知」条下面）。S5 不需要这个中间态，
             // 顺手把可能残留的标志清掉。
-            mQsExpandImmediate = false;
-            mNotificationStackScroller.setShouldShowShelfOnly(false);
+            // pd1610 v85: 双指下拉要保留原生的 mQsExpandImmediate（那是「整块展开」
+            // 的唯一入口）；只有单指（通知面板）才清掉。
+            if (!mS5GridMode) {
+                mQsExpandImmediate = false;
+                mNotificationStackScroller.setShouldShowShelfOnly(false);
+            }
         } else if (mQsFullyExpanded) {
             mQsExpandImmediate = true;
             mNotificationStackScroller.setShouldShowShelfOnly(true);
@@ -3334,11 +3732,13 @@ public class NotificationPanelView extends PanelView implements
         // 自身测量高度就是 mExpandedHeight（onMeasure 里 setMeasuredDimension 直接给
         // mExpandedHeight），多余内容被 View 边界裁掉。我们的面板是全屏的，只能显式裁：
         // 否则 QS 钉满后手指只拖 60 px，整块磁贴也会画出来（「一碰全开」）。
-        if (useS5PanelPhysics() && getExpandedHeight() > 0f) {
+        // pd1610 v103: 恒定裁剪。expandedHeight == 0 时要裁成 0 —— 否则钉在
+        // 窗口底的底栏（没有服务）会在收起后继续画在桌面上（用户报的 bug）。
+        if (useS5PanelPhysics()) {
             final int save = canvas.save();
             // 全展开：裁到窗口底（面板最大高度比窗口少一条导航栏，见 s5BottomBarEdge）
             final int clipBottom = getExpandedHeight() >= getMaxPanelHeight() - 0.5f
-                    ? getHeight() : Math.round(getExpandedHeight());
+                    ? getHeight() : Math.max(0, Math.round(getExpandedHeight()));
             canvas.clipRect(0, 0, getWidth(), clipBottom);
             super.dispatchDraw(canvas);
             canvas.restoreToCount(save);
@@ -3501,6 +3901,10 @@ public class NotificationPanelView extends PanelView implements
         super.onClosingFinished();
         resetHorizontalPanelPosition();
         setClosingWithAlphaFadeout(false);
+        // pd1610 v111: 面板收起 ⇒ 编辑页必须一起退出，否则状态泄漏会把触摸永久挡掉。
+        if (mQs instanceof QSFragment && mQs.isCustomizing()) {
+            ((QSFragment) mQs).hideCustomizer();
+        }
     }
 
     private void setClosingWithAlphaFadeout(boolean closing) {

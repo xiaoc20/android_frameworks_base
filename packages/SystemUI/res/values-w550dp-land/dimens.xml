@@ -17,6 +17,9 @@
 -->
 <resources>
     <!-- Standard notification width + gravity -->
-    <dimen name="notification_panel_width">544dp</dimen>
+    <!-- pd1610 v82: 原值 544dp 是给平板横屏用的；本机横屏可用宽 640dp ⇒ 命中本限定符，
+         面板被钉成 2176 px、2560 屏两边各空 192 px（用户：「横屏控制中心显示不完」）。
+         S5 原机横屏控制中心是铺满的 ⇒ 这里跟随竖屏用 match_parent。 -->
+    <dimen name="notification_panel_width">@dimen/match_parent</dimen>
 
 </resources>

@@ -39,6 +39,19 @@ public final class QsStyle {
 
     private QsStyle() {}
 
+    // pd1610 v128: 「当前处于 S5 控制中心（解锁态 + S5 UI）」的进程级缓存。
+    // 通知行在 inflate 线程上跑，那里 Dependency.get(StatusBarStateController)
+    // 读到的是错的（实测 KEYGUARD），所以改由主线程算好、这里只读。
+    private static volatile boolean sS5ShadeActive;
+
+    public static void setS5ShadeActive(boolean active) {
+        sS5ShadeActive = active;
+    }
+
+    public static boolean isS5ShadeActive() {
+        return sS5ShadeActive;
+    }
+
     public static int get(Context context) {
         int v = -1;
         if (context != null) {
@@ -48,7 +61,9 @@ public final class QsStyle {
             // 设置项还没写过 ⇒ 兼容老办法（adb setprop）
             v = SystemProperties.getInt(PROP, NATIVE);
         }
-        return (v == TOUCHWIZ || v == MIUI || v == S5) ? v : NATIVE;
+        // pd1610 v117: 只剩「原生 / 三星 S5」两档；TouchWiz(1)、MIUI(2) 已下线
+        // （设置里也列不出来了），旧值一律折回原生，别再把 UI 带进那条死路。
+        return (v == S5) ? S5 : NATIVE;
     }
 
     public static boolean isTouchWiz(Context context) {

@@ -198,19 +198,18 @@ public class QSIconViewImpl extends QSIconView {
                     .setFinalImageTintList(ColorStateList.valueOf(toColor));
         }
         if (mAnimationEnabled && ValueAnimator.areAnimatorsEnabled()) {
-            final float fromAlpha = Color.alpha(fromColor);
-            final float toAlpha = Color.alpha(toColor);
-            final float fromChannel = Color.red(fromColor);
-            final float toChannel = Color.red(toColor);
-
+            // pd1610 v84: 这里原来是「只插值红色通道，再复制成 R=G=B」的灰阶过渡。
+            // 本机 S5 配色 开=#ACEA00 绿 / 关=#669198 灰青，状态一变就走这段，
+            // 动画终点 = (0xAC,0xAC,0xAC) 灰；而动画结束后 updateIcon() 不再重设
+            // tint（mState 已提前更新）⇒ 打开的开关永远停在灰色
+            //（用户反馈：「按下去变的是白色和灰色，并不是绿色」）。
+            // 改成真正的 ARGB 渐变，fraction=1 时精确等于目标色。
+            final android.animation.ArgbEvaluator argb = new android.animation.ArgbEvaluator();
             ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
             anim.setDuration(QS_ANIM_LENGTH);
             anim.addUpdateListener(animation -> {
                 float fraction = animation.getAnimatedFraction();
-                int alpha = (int) (fromAlpha + (toAlpha - fromAlpha) * fraction);
-                int channel = (int) (fromChannel + (toChannel - fromChannel) * fraction);
-
-                setTint(iv, Color.argb(alpha, channel, channel, channel));
+                setTint(iv, (int) argb.evaluate(fraction, fromColor, toColor));
             });
             anim.addListener(new AnimatorListenerAdapter() {
                 @Override

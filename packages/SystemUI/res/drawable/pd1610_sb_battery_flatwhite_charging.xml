@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pd1610 v119: 无描边平涂电池 21 档（5% 一档） -->
+<level-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:maxLevel="2" android:drawable="@drawable/pd1610_sb_batc_fw00"/>
+    <item android:maxLevel="7" android:drawable="@drawable/pd1610_sb_batc_fw01"/>
+    <item android:maxLevel="12" android:drawable="@drawable/pd1610_sb_batc_fw02"/>
+    <item android:maxLevel="17" android:drawable="@drawable/pd1610_sb_batc_fw03"/>
+    <item android:maxLevel="22" android:drawable="@drawable/pd1610_sb_batc_fw04"/>
+    <item android:maxLevel="27" android:drawable="@drawable/pd1610_sb_batc_fw05"/>
+    <item android:maxLevel="32" android:drawable="@drawable/pd1610_sb_batc_fw06"/>
+    <item android:maxLevel="37" android:drawable="@drawable/pd1610_sb_batc_fw07"/>
+    <item android:maxLevel="42" android:drawable="@drawable/pd1610_sb_batc_fw08"/>
+    <item android:maxLevel="47" android:drawable="@drawable/pd1610_sb_batc_fw09"/>
+    <item android:maxLevel="52" android:drawable="@drawable/pd1610_sb_batc_fw10"/>
+    <item android:maxLevel="57" android:drawable="@drawable/pd1610_sb_batc_fw11"/>
+    <item android:maxLevel="62" android:drawable="@drawable/pd1610_sb_batc_fw12"/>
+    <item android:maxLevel="67" android:drawable="@drawable/pd1610_sb_batc_fw13"/>
+    <item android:maxLevel="72" android:drawable="@drawable/pd1610_sb_batc_fw14"/>
+    <item android:maxLevel="77" android:drawable="@drawable/pd1610_sb_batc_fw15"/>
+    <item android:maxLevel="82" android:drawable="@drawable/pd1610_sb_batc_fw16"/>
+    <item android:maxLevel="87" android:drawable="@drawable/pd1610_sb_batc_fw17"/>
+    <item android:maxLevel="92" android:drawable="@drawable/pd1610_sb_batc_fw18"/>
+    <item android:maxLevel="97" android:drawable="@drawable/pd1610_sb_batc_fw19"/>
+    <item android:maxLevel="100" android:drawable="@drawable/pd1610_sb_batc_fw20"/>
+</level-list>

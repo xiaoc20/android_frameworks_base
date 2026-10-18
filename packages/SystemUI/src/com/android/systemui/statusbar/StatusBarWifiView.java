@@ -34,6 +34,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
+import com.android.systemui.Pd1610StatusBarIcons;
 import com.android.systemui.R;
 import com.android.systemui.plugins.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.statusbar.phone.StatusBarSignalPolicy.WifiIconState;
@@ -59,6 +60,8 @@ public class StatusBarWifiView extends FrameLayout implements DarkReceiver,
     private String mSlot;
     /* pd1610: S5 模式用三星自己的 wifi 扇形图（带 / 不带 in-out 箭头两套） */
     private boolean mS5Style;
+    /** pd1610 v116: 经典样式吃状态栏染色（白扇形在深色背景上才是白的）。 */
+    private boolean mS5Tinted;
     private Drawable mS5WifiWithInOut;
     private Drawable mS5WifiNoInOut;
     private int mVisibleState = -1;
@@ -96,7 +99,11 @@ public class StatusBarWifiView extends FrameLayout implements DarkReceiver,
     @Override
     public void setStaticDrawableColor(int color) {
         ColorStateList list = ColorStateList.valueOf(color);
-        mWifiIcon.setImageTintList(list);
+        // pd1610 v115/v116: 绿/白用的是三星自带配色，不吃状态栏染色；
+        // 经典样式照旧染色（白扇形靠染色在浅色底上才看得见）。
+        if (!mS5Style || mS5Tinted) {
+            mWifiIcon.setImageTintList(list);
+        }
         mIn.setImageTintList(list);
         mOut.setImageTintList(list);
         mDotView.setDecorColor(color);
@@ -169,8 +176,27 @@ public class StatusBarWifiView extends FrameLayout implements DarkReceiver,
         mS5Style = com.android.systemui.qs.QsStyle.get(mContext)
                 == com.android.systemui.qs.QsStyle.S5;
         if (mS5Style) {
-            mS5WifiWithInOut = mContext.getDrawable(R.drawable.pd1610_s5_wifi_signal);
-            mS5WifiNoInOut = mContext.getDrawable(R.drawable.pd1610_s5_wifi_signal_noinout);
+            // pd1610 v116: 三档样式，默认经典（上个版本的三星白扇形）。
+            final int style = Pd1610StatusBarIcons.get(mContext);
+            // pd1610 v120: 「全绿（无描边）」只换电池，WiFi 仍用经典那套。
+            if (style == Pd1610StatusBarIcons.CLASSIC
+                    || style == Pd1610StatusBarIcons.FLAT_GREEN) {
+                mS5Tinted = true;
+                mS5WifiWithInOut = mContext.getDrawable(
+                        R.drawable.pd1610_s5_wifi_signal);
+                mS5WifiNoInOut = mContext.getDrawable(
+                        R.drawable.pd1610_s5_wifi_signal_noinout);
+            } else {
+                mS5Tinted = false;
+                final boolean white = style == Pd1610StatusBarIcons.WHITE
+                        || style == Pd1610StatusBarIcons.FLAT_WHITE;
+                mS5WifiWithInOut = mContext.getDrawable(white
+                        ? R.drawable.pd1610_sb_wifi_white
+                        : R.drawable.pd1610_sb_wifi_green);
+                mS5WifiNoInOut = mContext.getDrawable(white
+                        ? R.drawable.pd1610_sb_wifi_white_noinout
+                        : R.drawable.pd1610_sb_wifi_green_noinout);
+            }
             int size = getResources().getDimensionPixelSize(R.dimen.pd1610_s5_wifi_signal_size);
             mWifiIcon.getLayoutParams().width = size;
             mWifiIcon.getLayoutParams().height = size;
@@ -288,7 +314,10 @@ public class StatusBarWifiView extends FrameLayout implements DarkReceiver,
     public void onDarkChanged(Rect area, float darkIntensity, int tint) {
         int areaTint = getTint(area, this, tint);
         ColorStateList color = ColorStateList.valueOf(areaTint);
-        mWifiIcon.setImageTintList(color);
+        // pd1610 v115/v116: 同上 —— 绿/白样式不吃染色，否则被盖成灰色。
+        if (!mS5Style || mS5Tinted) {
+            mWifiIcon.setImageTintList(color);
+        }
         mIn.setImageTintList(color);
         mOut.setImageTintList(color);
         mDotView.setDecorColor(areaTint);

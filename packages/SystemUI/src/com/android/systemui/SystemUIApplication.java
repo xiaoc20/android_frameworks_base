@@ -100,6 +100,17 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
                             Process.killProcess(Process.myPid());
                         }
                     });
+            // pd1610 v114: 状态栏图标配色（电池/WiFi 绿 ↔ 白）改了同样自重启。
+            getContentResolver().registerContentObserver(
+                    Settings.System.getUriFor(
+                            Pd1610StatusBarIcons.SETTING_KEY), false,
+                    new ContentObserver(new Handler(Looper.getMainLooper())) {
+                        @Override
+                        public void onChange(boolean selfChange) {
+                            Log.i(TAG, "pd1610 sb icon color changed, restarting SystemUI");
+                            Process.killProcess(Process.myPid());
+                        }
+                    });
         }
 
         if (Process.myUserHandle().equals(UserHandle.SYSTEM)) {

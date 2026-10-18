@@ -37,7 +37,10 @@ import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.plugins.FalsingManager;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.qs.QsStyle;
 import com.android.systemui.statusbar.NotificationShelf;
+import com.android.systemui.statusbar.StatusBarState;
 import com.android.systemui.statusbar.notification.FakeShadowView;
 import com.android.systemui.statusbar.notification.NotificationUtils;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout;
@@ -127,6 +130,8 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     private float mAppearAnimationFraction = -1.0f;
     private float mAppearAnimationTranslation;
     private int mNormalColor;
+    /** pd1610 v126: notification_material_background_color 的原始值（drawable 自带色）。 */
+    private int mNormalBaseColor;
     private boolean mLastInSection;
     private boolean mFirstInSection;
     private boolean mIsBelowSpeedBump;
@@ -181,13 +186,58 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     }
 
     private void updateColors() {
-        mNormalColor = mContext.getColor(R.color.notification_material_background_color);
+        mNormalBaseColor = mContext.getColor(R.color.notification_material_background_color);
+        mNormalColor = mNormalBaseColor;
+        // pd1610 v126: S5 控制中心的深青通知卡只在「S5 + 解锁后的控制中心」用。
+        // 锁屏和原生 UI 一律白卡（与 PdS5NotifStyle 的闸门保持一致）。
+        if (isS5Shade()) {
+            mNormalColor = mContext.getColor(R.color.pd1610_qs_notif_bg);
+        }
         mTintedRippleColor = mContext.getColor(
                 R.color.notification_ripple_tinted_color);
         mNormalRippleColor = mContext.getColor(
                 R.color.notification_ripple_untinted_color);
+        if (isS5Shade()) {
+            // pd1610 v126b: 深色卡上的涟漪要浅色，原生白卡照旧深色
+            mNormalRippleColor = 0x30ffffff;
+        }
         mDimmedAlpha = Color.alpha(mContext.getColor(
                 R.color.notification_material_background_dimmed_color));
+    }
+
+    /** pd1610 v126: 当前是不是「S5 风格的解锁后控制中心」。 */
+    private boolean isS5Shade() {
+        if (QsStyle.get(mContext) != QsStyle.S5) {
+            return false;
+        }
+        // pd1610 v128: 不能在这里现读状态 —— 本方法多半跑在通知行的 inflate 线程上，
+        // 实测那儿的 StatusBarStateController 报 KEYGUARD（主线程报 SHADE）。
+        // 用 NotificationPanelView.updateQsState() 在主线程算好的缓存。
+        return QsStyle.isS5ShadeActive();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        // pd1610 v130: 通知行多半是锁屏时 inflate 的（那时算出来是白卡），
+        // 而展开控制中心时它们可能还没进列表，restyle 遍历不到。
+        // 挂窗口这一刻按缓存状态补算一次。
+        if (QsStyle.isS5ShadeActive()) {
+            refreshS5BackgroundTint();
+        }
+    }
+
+    /**
+     * pd1610 v128: 主线程在锁屏⇄解锁切换时调用，按最新状态重算卡片底色。
+     */
+    public void refreshS5BackgroundTint() {
+        mNormalColor = isS5Shade()
+                ? mContext.getColor(R.color.pd1610_qs_notif_bg)
+                : mNormalBaseColor;
+        mNormalRippleColor = isS5Shade()
+                ? 0x30ffffff
+                : mContext.getColor(R.color.notification_ripple_untinted_color);
+        updateBackgroundColors();
     }
 
     private void initDimens() {
@@ -579,8 +629,10 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     protected void setBackgroundTintColor(int color) {
         if (color != mCurrentBackgroundTint) {
             mCurrentBackgroundTint = color;
-            if (color == mNormalColor) {
+            if (color == mNormalBaseColor) {
                 // We don't need to tint a normal notification
+                // pd1610 v126: 比的是 drawable 自带色，不是 mNormalColor ——
+                // S5 的深青卡靠这里 tint 上去。
                 color = 0;
             }
             mBackgroundDimmed.setTint(color);

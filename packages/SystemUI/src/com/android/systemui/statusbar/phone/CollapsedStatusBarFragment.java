@@ -125,23 +125,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         Dependency.get(StatusBarIconController.class).addIconGroup(mDarkIconManager);
         mSystemIconArea = mStatusBar.findViewById(R.id.system_icon_area);
         mNetworkTrafficHolder = mStatusBar.findViewById(R.id.network_traffic_holder);
-        // pd1610: S5 原机状态栏的时钟在最右边（网速/信号/电池之后），不在最左边。
-        // 直接把 clock 从左侧容器挪到 status_bar_contents 末尾即可，id 不变，
-        // ClockController / 主题 / 禁用标志都按 id 找，不受影响。
-        if (com.android.systemui.qs.QsStyle.get(getContext())
-                == com.android.systemui.qs.QsStyle.S5) {
-            View clock = mStatusBar.findViewById(R.id.clock);
-            if (clock != null && clock.getParent() instanceof ViewGroup) {
-                ((ViewGroup) clock.getParent()).removeView(clock);
-                LinearLayout contents =
-                        mStatusBar.findViewById(R.id.status_bar_contents);
-                if (contents != null) {
-                    contents.addView(clock, new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.MATCH_PARENT));
-                }
-            }
-        }
+        // pd1610 v120: 这里原来在 S5 模式下把 @id/clock（左侧那个时钟）硬搬到右边，
+        // 但原生「时钟位置＝右侧」用的是 system_icons 里的 @id/clock_right，
+        // 两者不是同一个 View ⇒ 用户选「左 / 中」时时钟仍被搬在右边，设置等于失效。
+        // S5 要的「时钟在最右」本身就是「位置＝右侧」这一档，交给 ClockController 即可。
         mClockController = new ClockController(mStatusBar);
         showSystemIconArea(false);
         showClock(false);
