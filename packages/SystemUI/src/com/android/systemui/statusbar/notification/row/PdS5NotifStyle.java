@@ -67,10 +67,8 @@ public final class PdS5NotifStyle {
             return;
         }
         recolor(root);
-        // pd1610 v58: 分组子行不做 compact —— 见 isChildRow() 的注释
-        if (!isChildRow(root)) {
-            compact(root);
-        }
+        // pd1610 v64: 子行也收，但只收 header、不搬 icon/time —— 见 compactTemplate()
+        compact(root, isChildRow(root));
     }
 
     /**
@@ -256,15 +254,15 @@ public final class PdS5NotifStyle {
 
     // ---------------------------------------------------------------- 排版
 
-    private static void compact(View v) {
+    private static void compact(View v, boolean childRow) {
         if (v.getId() == com.android.internal.R.id.notification_header
                 && v.getParent() instanceof View) {
-            compactTemplate(v, (View) v.getParent());
+            compactTemplate(v, (View) v.getParent(), childRow);
         }
         if (v instanceof ViewGroup) {
             final ViewGroup g = (ViewGroup) v;
             for (int i = 0; i < g.getChildCount(); i++) {
-                compact(g.getChildAt(i));
+                compact(g.getChildAt(i), childRow);
             }
         }
     }
@@ -300,7 +298,21 @@ public final class PdS5NotifStyle {
         }
     }
 
-    private static void compactTemplate(View header, View scope) {
+    private static void compactTemplate(View header, View scope, boolean childRow) {
+        if (childRow) {
+            // pd1610 v64: 分组子行只把「应用名 + 时间」那一行 header 收掉，正文列留白同样
+            // 收到 8dp；行高 420 -> ~300 px。
+            // ⛔ 绝不搬 R.id.icon / R.id.time：AOSP NotificationHeaderUtil 默认它们还在
+            //    header 里（mGreyApplicator 的 icon.getDrawable()、sanitizeHeader 的
+            //    time.setVisibility）—— 一搬，展开分组/增删子通知/展开态清除就 NPE
+            //    打死 SystemUI（v58 前实测两次）。
+            if (header.getVisibility() != View.GONE) {
+                saveVisibility(header);
+                header.setVisibility(View.GONE);
+            }
+            tightenMainColumn(scope);
+            return;
+        }
         final View line1 = scope.findViewById(com.android.internal.R.id.line1);
         final View title = scope.findViewById(com.android.internal.R.id.title);
         final View text = scope.findViewById(com.android.internal.R.id.text);
@@ -395,7 +407,13 @@ public final class PdS5NotifStyle {
             }
         }
 
-        // 原生给「应用名行 + 标题 + 正文」留的 46dp/20dp 上下白，S5 用不着
+        tightenMainColumn(scope);
+    }
+
+    /** 原生给「应用名行 + 标题 + 正文」留的 46dp/20dp 上下白，S5 用不着。 */
+    private static void tightenMainColumn(View scope) {
+        final View mainColumn =
+                scope.findViewById(com.android.internal.R.id.notification_main_column);
         if (mainColumn != null) {
             final ViewGroup.LayoutParams lp = mainColumn.getLayoutParams();
             if (lp instanceof ViewGroup.MarginLayoutParams) {
