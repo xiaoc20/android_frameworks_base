@@ -229,12 +229,8 @@ public class BatteryMeterView extends LinearLayout implements
             mBatteryIconView.setImageDrawable(mThemedDrawable);
         }
         final MarginLayoutParams mlp = new MarginLayoutParams(
-                getResources().getDimensionPixelSize(mS5Battery
-                        ? R.dimen.pd1610_s5_battery_icon_width
-                        : R.dimen.status_bar_battery_icon_width),
-                getResources().getDimensionPixelSize(mS5Battery
-                        ? R.dimen.pd1610_s5_battery_icon_height
-                        : R.dimen.status_bar_battery_icon_height));
+                getBatteryIconWidthPx(getResources()),
+                getBatteryIconHeightPx(getResources()));
         mlp.setMargins(0, 0, 0,
                 getResources().getDimensionPixelOffset(R.dimen.battery_margin_bottom));
         addView(mBatteryIconView, mlp);
@@ -551,6 +547,29 @@ public class BatteryMeterView extends LinearLayout implements
     }
 
     /**
+     * pd1610: 主题自带的电池帧（灵梦等）高度只有 13dp，比原机图标显小。
+     * S5 电池有自己的一套尺寸（pd1610_s5_battery_icon_*），不走这条放大。
+     * 用户 2026-10-19：「电池有点小」。
+     */
+    private static final float PD1610_CUSTOM_BATTERY_SCALE = 1.3f;
+
+    private int getBatteryIconWidthPx(Resources res) {
+        final int w = res.getDimensionPixelSize(mS5Battery
+                ? R.dimen.pd1610_s5_battery_icon_width
+                : R.dimen.status_bar_battery_icon_width);
+        return mUseCustomDrawable && !mS5Battery
+                ? Math.round(w * PD1610_CUSTOM_BATTERY_SCALE) : w;
+    }
+
+    private int getBatteryIconHeightPx(Resources res) {
+        final int h = res.getDimensionPixelSize(mS5Battery
+                ? R.dimen.pd1610_s5_battery_icon_height
+                : R.dimen.status_bar_battery_icon_height);
+        return mUseCustomDrawable && !mS5Battery
+                ? Math.round(h * PD1610_CUSTOM_BATTERY_SCALE) : h;
+    }
+
+    /**
      * Looks up the scale factor for status bar icons and scales the battery view by that amount.
      */
     private void scaleBatteryMeterViews() {
@@ -560,14 +579,10 @@ public class BatteryMeterView extends LinearLayout implements
         res.getValue(R.dimen.status_bar_icon_scale_factor, typedValue, true);
         float iconScaleFactor = typedValue.getFloat();
 
-        int batteryHeight = res.getDimensionPixelSize(mS5Battery
-                ? R.dimen.pd1610_s5_battery_icon_height
-                : R.dimen.status_bar_battery_icon_height);
+        int batteryHeight = getBatteryIconHeightPx(res);
         int batteryWidth = mBatteryStyle == BATTERY_STYLE_CIRCLE ?
                 res.getDimensionPixelSize(R.dimen.status_bar_battery_icon_circle_width) :
-                res.getDimensionPixelSize(mS5Battery
-                        ? R.dimen.pd1610_s5_battery_icon_width
-                        : R.dimen.status_bar_battery_icon_width);
+                getBatteryIconWidthPx(res);
         int marginBottom = res.getDimensionPixelSize(R.dimen.battery_margin_bottom);
 
         LinearLayout.LayoutParams scaledLayoutParams = new LinearLayout.LayoutParams(
