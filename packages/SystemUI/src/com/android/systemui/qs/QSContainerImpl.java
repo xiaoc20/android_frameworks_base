@@ -55,6 +55,8 @@ public class QSContainerImpl extends FrameLayout {
     private View mQSFooter;
 
     private View mBackground;
+    /** pd1610: 原生面板底色（S5/TouchWiz 会把它刷成纯色，切回原生时要还原）。 */
+    private android.graphics.drawable.Drawable mStockBackgroundDrawable;
     private View mBackgroundGradient;
     private View mStatusBarBackground;
 
@@ -101,6 +103,7 @@ public class QSContainerImpl extends FrameLayout {
                 == Configuration.ORIENTATION_LANDSCAPE;
 
         mStatusBarBackgroundDrawable = mStatusBarBackground.getBackground();
+        mStockBackgroundDrawable = mBackground.getBackground();
 
         // pd1610: TouchWiz 4.4 是深色面板 + 白色文字（标签在 QSTileView 里处理）
         if (QsStyle.get(getContext()) == QsStyle.S5) {
@@ -257,7 +260,15 @@ public class QSContainerImpl extends FrameLayout {
             mSuiQsImage = null;
             mSuiImageLp = null;
         }
-        mBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
+        // pd1610: 只有 S5 才刷深青底；原生模式必须还原 XML 里的原始底色，
+        // 否则切回原生后控制中心会残留 S5 面板底（灵梦等主题也会被盖掉）。
+        if (QsStyle.get(getContext()) == QsStyle.S5) {
+            mBackground.setBackgroundColor(getContext().getColor(R.color.pd1610_qs_panel_bg));
+        } else if (QsStyle.get(getContext()) == QsStyle.TOUCHWIZ) {
+            mBackground.setBackgroundColor(0xFF000000);
+        } else if (mStockBackgroundDrawable != null) {
+            mBackground.setBackground(mStockBackgroundDrawable);
+        }
         applySui();
         updateHeaderVisibility();
         updateExpansion();
